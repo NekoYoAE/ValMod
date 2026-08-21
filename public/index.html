@@ -3,86 +3,45 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ValMod — 安装油猴脚本</title>
+  <title>ValMod-安装脚本</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
-      font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
-      color: #e8f0f3;
-      padding: 24px;
-    }
-    .card {
       max-width: 560px;
-      width: 100%;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 20px;
-      padding: 48px 40px;
-      text-align: center;
-      backdrop-filter: blur(8px);
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+      margin: 0 auto;
+      padding: 48px 24px;
+      font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      color: #000;
+      line-height: 1.7;
     }
-    .badge {
-      display: inline-block;
-      background: rgba(255, 184, 77, 0.15);
-      color: #ffb84d;
-      border: 1px solid rgba(255, 184, 77, 0.4);
-      border-radius: 999px;
-      padding: 4px 14px;
-      font-size: 13px;
-      letter-spacing: 0.5px;
-      margin-bottom: 20px;
-    }
-    h1 { font-size: 36px; margin-bottom: 12px; }
-    p.desc { color: #9fb4bd; line-height: 1.7; margin-bottom: 32px; }
-    .install-btn {
+    h1 { font-size: 32px; margin-bottom: 24px; }
+    p { margin-bottom: 24px; }
+    a.install {
       display: block;
       width: 100%;
-      padding: 16px;
-      border-radius: 12px;
-      background: #ff8a3d;
-      color: #fff;
-      font-size: 18px;
-      font-weight: 700;
+      padding: 14px;
+      border: 1px solid #000;
+      color: #000;
+      text-align: center;
       text-decoration: none;
-      letter-spacing: 2px;
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
-      box-shadow: 0 8px 24px rgba(255, 138, 61, 0.35);
+      font-size: 16px;
+      margin-bottom: 32px;
     }
-    .install-btn:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(255, 138, 61, 0.5); }
-    .steps {
-      margin-top: 28px;
-      text-align: left;
-      color: #9fb4bd;
-      font-size: 14px;
-      line-height: 2;
-    }
-    .steps strong { color: #e8f0f3; }
-    .link { color: #7cc7ff; word-break: break-all; }
+    ol { padding-left: 24px; margin-bottom: 24px; }
+    a.link { color: #000; }
   </style>
 </head>
 <body>
-  <div class="card">
-    <span class="badge">Tampermonkey Userscript</span>
-    <h1>ValMod</h1>
-    <p class="desc">Scratch 变量修改器 — 悬浮变量操作面板<br />实时查看、修改并锁定 Scratch 项目中的变量值</p>
+  <h1>ValMod</h1>
+  <p>Scratch 变量修改器</p>
 
-    <a class="install-btn" href="./ValMod.user.js">点击安装脚本</a>
+  <a class="install" href="https://NekoYoAE.github.io/ValMod/ValMod.user.js">点击安装脚本</a>
 
-    <div class="steps">
-      <strong>安装步骤：</strong><br />
-      1. 浏览器安装 <a class="link" href="https://www.tampermonkey.net/" target="_blank" rel="noopener">Tampermonkey</a>（或 Violentmonkey）扩展<br />
-      2. 点击上方「点击安装脚本」按钮<br />
-      3. 在 Tampermonkey 弹窗中点击「安装」即可<br />
-      <br />
-      <strong>使用：</strong>打开 <span class="link">scratch.mit.edu / ccw.site</span> 任意项目编辑器，右下角出现面板。<br />
-      <strong>更新：</strong>脚本内已配置 <span class="link">@updateURL</span>，Tampermonkey 会自动检查更新，无需手动重装。
-    </div>
-  </div>
+  <ol>
+    <li>安装 <a class="link" href="https://www.tampermonkey.net/" target="_blank" rel="noopener">篡改猴插件</a>（或 Violentmonkey）扩展</li>
+    <li>点击上方「点击安装脚本」按钮</li>
+    <li>在 篡改猴 弹窗中点击「安装」</li>
+  </ol>
+
 </body>
 </html>

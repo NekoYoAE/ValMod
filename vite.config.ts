@@ -19,8 +19,6 @@ const updateMeta = pagesUrl
     }
   : {};
 
-// 由 GitHub Actions 注入的递增版本号（如 0.1.123），
-// 确保每次部署 @version 都变化，Tampermonkey 才能识别新版本并自动更新。
 const scriptVersion = process.env.SCRIPT_VERSION ?? '0.1';
 
 export default defineConfig({
