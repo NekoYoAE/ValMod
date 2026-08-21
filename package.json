@@ -7,7 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "svelte-check --tsconfig ./tsconfig.json"
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "deploy": "git add -A && git commit -m \"deploy: auto update\" && git push origin main"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
