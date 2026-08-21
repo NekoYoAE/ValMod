@@ -1,9 +1,3 @@
-/*
- * 宿主隐身：宿主元素自身零属性、零内联样式，
- * 所有定位/层级特性全部收敛在本 shadow 内的 :host 规则里。
- * 离屏定位（-9999px）使其在页面中不产生任何可见痕迹，
- * 同时 position:fixed 的内容仍以视口为基准正常显示。
- */
 :host {
   all: initial;
   position: fixed !important;
