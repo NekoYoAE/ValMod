@@ -1,0 +1,8 @@
+- generic [active] [ref=f1e2]:
+  - generic [ref=f1e3]:
+    - 'button "blockKeys: false" [ref=f1e4]'
+    - 'button "stopImmediate: false" [ref=f1e5]'
+    - 'button "poll: false" [ref=f1e6]'
+  - textbox [ref=f1e7]: "10023"
+  - generic [ref=f1e8]: "current value: 100"
+  - generic [ref=f1e9]: "editing: true"

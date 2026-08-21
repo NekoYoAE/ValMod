@@ -1,0 +1,22 @@
+{
+  "name": "valmod",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "修改scratch变量",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@types/node": "^22.10.0",
+    "javascript-obfuscator": "^5.5.0",
+    "svelte": "^5.15.0",
+    "svelte-check": "^4.1.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.0",
+    "vite-plugin-monkey": "^5.0.0"
+  }
+}
