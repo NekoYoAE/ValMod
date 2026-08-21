@@ -11,8 +11,6 @@ const match = [
   'https://world.xiaomawang.com/*', // 小码王
 ];
 
-// 由 GitHub Actions 注入的部署地址（https://<用户名>.github.io/<仓库名>/），
-// 用于生成 downloadURL / updateURL，让 Tampermonkey 能自动更新脚本。
 const pagesUrl = process.env.GITHUB_PAGES_URL;
 const updateMeta = pagesUrl
   ? {
@@ -20,6 +18,10 @@ const updateMeta = pagesUrl
       updateURL: `${pagesUrl}ValMod.user.js`,
     }
   : {};
+
+// 由 GitHub Actions 注入的递增版本号（如 0.1.123），
+// 确保每次部署 @version 都变化，Tampermonkey 才能识别新版本并自动更新。
+const scriptVersion = process.env.SCRIPT_VERSION ?? '0.1';
 
 export default defineConfig({
   plugins: [
@@ -30,7 +32,7 @@ export default defineConfig({
         name: 'ValMod',
         namespace: 'https://github.com/NekoYoAE/valmod',
         description: 'Scratch变量修改器',
-        version: '0.1',
+        version: scriptVersion,
         author: 'NekoYoAE@GitHub',
         match,
         grant: 'none',
@@ -38,7 +40,6 @@ export default defineConfig({
         ...updateMeta,
       },
       build: {
-        // 必须以 .user.js 结尾，Tampermonkey / GitHub 才能识别为可安装的油猴脚本
         fileName: 'ValMod.user.js',
       },
     }),
