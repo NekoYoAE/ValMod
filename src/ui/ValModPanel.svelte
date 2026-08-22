@@ -9,7 +9,6 @@
     normalizeValue,
     stringToListValue,
   } from '../core';
-  import { tick } from 'svelte';
   import ValModItem from './ValModItem.svelte';
   import refreshIcon from '../assets/refresh.svg?raw';
   import closeIcon from '../assets/close.svg?raw';
@@ -149,10 +148,11 @@
     void variables;
     void expandedGroups;
     if (minimized || !panelEl || !bodyEl) return;
-    tick().then(() => {
+    const timer = setTimeout(() => {
       if (minimized) return;
       autoGrowPanel();
-    });
+    }, 150);
+    return () => clearTimeout(timer);
   });
 
   async function connect() {

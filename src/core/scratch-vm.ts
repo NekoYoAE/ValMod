@@ -10,10 +10,10 @@ import {
 import { findVmViaFiber, isVMLike, normalizeValue, sleep } from './utils';
 
 interface LockEntry {
-  timer: ReturnType<typeof setTimeout> | null;
   targetId: string;
   value: ScratchValue;
   interval: number;
+  lastWrite: number;
 }
 
 export type BridgeEvent =
@@ -38,6 +38,15 @@ export class ScratchVM {
   private bindOrig: typeof Function.prototype.bind | null = null;
   private bindHookInstalled = false;
   private bindHookTried = false;
+
+  private static readonly LOCK_FALLBACK_MS = 100;
+  private static readonly EMIT_MIN_INTERVAL = 100;
+
+  private suppressWriteback = new Set<string>();
+  private lockTickerTimer: ReturnType<typeof setTimeout> | null = null;
+  private vmChangeHookInstalled = false;
+  private emitScheduled = false;
+  private lastEmitAttempt = 0;
 
   constructor(options: BridgeOptions = {}) {
     this.options = {
@@ -96,6 +105,7 @@ export class ScratchVM {
     this.restoreBindHook();
     this.unbindVM();
     this.stopPolling();
+    this.stopLockTicker();
     this.clearAllLocks();
     this.vm = null;
     this.snapshot = '';
@@ -113,12 +123,12 @@ export class ScratchVM {
       getName?: () => string;
     }>) {
       if (!target?.variables) continue;
-      const entries =
-        target.variables instanceof Map
-          ? [...target.variables.entries()]
-          : Object.entries(target.variables);
-      for (const [id, variable] of entries) {
-        if (variable?.name === undefined) continue;
+      const variables = target.variables;
+      const pushVariable = (
+        id: string,
+        variable: { name?: string; value?: unknown; isCloud?: boolean },
+      ) => {
+        if (variable?.name === undefined) return;
         const lock = this.locks.get(id);
         const isList = Array.isArray(variable.value);
         result.push({
@@ -131,6 +141,11 @@ export class ScratchVM {
           targetName: target.getName?.() ?? '舞台',
           isLocked: Boolean(lock),
         });
+      };
+      if (variables instanceof Map) {
+        for (const [id, variable] of variables) pushVariable(id, variable);
+      } else {
+        for (const [id, variable] of Object.entries(variables)) pushVariable(id, variable);
       }
     }
     return result;
@@ -156,35 +171,26 @@ export class ScratchVM {
     if (!this.vm || !targetId) return false;
     this.unlockVariable(variableId);
     const entry: LockEntry = {
-      timer: null,
       targetId,
-      value,
-      interval,
+      value: this.snapshotValue(value),
+      interval: Math.max(0, interval),
+      lastWrite: 0,
     };
-    const tick = () => {
-      if (!this.locks.has(variableId)) return;
-      this.writeVariable(variableId, entry.value, targetId);
-      entry.timer = setTimeout(tick, Math.max(0, interval));
-    };
-    entry.timer = setTimeout(tick, 0);
     this.locks.set(variableId, entry);
-    this.writeVariable(variableId, value, targetId);
+    this.installVariableChangeHook();
+    this.writeLockValue(variableId, entry);
+    this.startLockTicker();
     this.scheduleEmit();
     return true;
   }
 
   unlockVariable(variableId: string): void {
-    const entry = this.locks.get(variableId);
-    if (!entry) return;
-    if (entry.timer !== null) clearTimeout(entry.timer);
-    this.locks.delete(variableId);
+    if (!this.locks.delete(variableId)) return;
     this.scheduleEmit();
   }
 
   clearAllLocks(): void {
-    for (const entry of this.locks.values()) {
-      if (entry.timer !== null) clearTimeout(entry.timer);
-    }
+    if (this.locks.size === 0) return;
     this.locks.clear();
     this.scheduleEmit();
   }
@@ -208,7 +214,7 @@ export class ScratchVM {
 
   updateLockedVariableValue(variableId: string, value: ScratchValue): void {
     const entry = this.locks.get(variableId);
-    if (entry) entry.value = value;
+    if (entry) entry.value = this.snapshotValue(value);
   }
 
   lockVariablesByName(options: NameLockOptions): number {
@@ -265,10 +271,123 @@ export class ScratchVM {
     return false;
   }
 
-  private scheduleEmit(): void {
-    if (this.status === BridgeStatus.Connected) {
-      queueMicrotask(() => this.emitVariables());
+  private snapshotValue(value: ScratchValue): ScratchValue {
+    return Array.isArray(value) ? (value.slice() as VariableValue[]) : value;
+  }
+
+  private writeLockValue(variableId: string, entry: LockEntry): boolean {
+    return this.writeVariable(variableId, this.snapshotValue(entry.value), entry.targetId);
+  }
+
+  private peekVariable(variableId: string, targetId: string): unknown {
+    try {
+      const vm = this.vm as {
+        getVariableValue?: (targetId: string, variableId: string) => unknown;
+        runtime?: {
+          getTargetById?: (
+            tid: string,
+          ) =>
+            | {
+                variables?:
+                  | Map<string, { value: unknown }>
+                  | Record<string, { value: unknown }>;
+              }
+            | undefined;
+        };
+      } | null;
+      if (!vm) return undefined;
+      if (typeof vm.getVariableValue === 'function') {
+        return vm.getVariableValue(targetId, variableId);
+      }
+      const target = vm.runtime?.getTargetById?.(targetId);
+      const variables = target?.variables;
+      if (variables) {
+        const variable =
+          variables instanceof Map ? variables.get(variableId) : variables[variableId];
+        return variable?.value;
+      }
+    } catch {}
+    return undefined;
+  }
+
+  private valuesEqual(a: unknown, b: unknown): boolean {
+    if (Array.isArray(a) && Array.isArray(b)) {
+      if (a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) return false;
+      }
+      return true;
     }
+    return a === b;
+  }
+
+  private startLockTicker(): void {
+    if (this.lockTickerTimer !== null) return;
+    this.lockTickerTimer = setTimeout(this.tickLocks, ScratchVM.LOCK_FALLBACK_MS);
+  }
+
+  private stopLockTicker(): void {
+    if (this.lockTickerTimer !== null) {
+      clearTimeout(this.lockTickerTimer);
+      this.lockTickerTimer = null;
+    }
+  }
+
+  private tickLocks = (): void => {
+    this.lockTickerTimer = null;
+    if (this.locks.size === 0) return;
+    const now = Date.now();
+    for (const [id, entry] of this.locks) {
+      if (entry.interval > 0 && now - entry.lastWrite < entry.interval) continue;
+      const current = this.peekVariable(id, entry.targetId);
+      if (!this.valuesEqual(current, entry.value)) {
+        this.suppressWriteback.add(id);
+        try {
+          this.writeLockValue(id, entry);
+        } finally {
+          this.suppressWriteback.delete(id);
+        }
+      }
+      entry.lastWrite = now;
+    }
+    this.lockTickerTimer = setTimeout(this.tickLocks, ScratchVM.LOCK_FALLBACK_MS);
+  };
+
+  private onVariableChange = (variable?: unknown): void => {
+    const v = variable as { id?: unknown } | null;
+    if (!v || typeof v.id !== 'string') return;
+    if (this.suppressWriteback.has(v.id)) return;
+    const entry = this.locks.get(v.id);
+    if (!entry || entry.interval > 0) return;
+    this.suppressWriteback.add(v.id);
+    try {
+      this.writeLockValue(v.id, entry);
+    } finally {
+      this.suppressWriteback.delete(v.id);
+    }
+  };
+
+  private installVariableChangeHook(): void {
+    if (this.vmChangeHookInstalled) return;
+    const vm = this.vm as { on?: (event: string, cb: (variable?: unknown) => void) => void };
+    vm.on?.('variableChange', this.onVariableChange);
+    this.vmChangeHookInstalled = true;
+  }
+
+  private removeVariableChangeHook(): void {
+    if (!this.vmChangeHookInstalled) return;
+    const vm = this.vm as { off?: (event: string, cb: (variable?: unknown) => void) => void };
+    vm.off?.('variableChange', this.onVariableChange);
+    this.vmChangeHookInstalled = false;
+  }
+
+  private scheduleEmit(): void {
+    if (this.status !== BridgeStatus.Connected || this.emitScheduled) return;
+    this.emitScheduled = true;
+    queueMicrotask(() => {
+      this.emitScheduled = false;
+      this.emitVariables();
+    });
   }
 
   private emit(event: BridgeEvent): void {
@@ -356,15 +475,20 @@ export class ScratchVM {
     const vm = this.vm as { on?: (event: string, cb: () => void) => void };
     vm.on?.('targetsUpdate', this.emitVariables);
     vm.on?.('PROJECT_RUN_START', this.emitVariables);
+    this.installVariableChangeHook();
   }
 
   private unbindVM(): void {
+    this.removeVariableChangeHook();
     const vm = this.vm as { off?: (event: string, cb: () => void) => void };
     vm.off?.('targetsUpdate', this.emitVariables);
     vm.off?.('PROJECT_RUN_START', this.emitVariables);
   }
 
   private emitVariables = (): void => {
+    const now = Date.now();
+    if (now - this.lastEmitAttempt < ScratchVM.EMIT_MIN_INTERVAL) return;
+    this.lastEmitAttempt = now;
     const list = this.getVariables();
     const snapshot = JSON.stringify(list);
     if (snapshot === this.snapshot) return;

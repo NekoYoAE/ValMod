@@ -23,7 +23,8 @@
 
   $effect(() => {
     if (focused) return;
-    draft = listValueToString(variable.value);
+    const text = listValueToString(variable.value);
+    if (text !== draft) draft = text;
   });
 
   function onFocus() {
