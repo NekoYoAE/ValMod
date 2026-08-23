@@ -8,7 +8,7 @@ import {
   type VariableValue,
 } from './types';
 import { findVmViaFiber, isVMLike, normalizeValue, sleep } from './utils';
-import { markNative } from './stealth';
+import { markNative } from '../dom-utils';
 
 interface LockEntry {
   targetId: string;

@@ -3,13 +3,6 @@
 Scratch变量操作面板
 实时查看、修改并锁定角色变量。支持导入和导出配置模板。
 
-## 未开智小学生试图使用ai检测ValMod
-![image](docs/images/image1.png)
-
-这位ccw用户[Maxkore](https://www.ccw.site/student/670b895b19f4df62e8081d80)，qq号`3879473998`。试图使用ai做出检测ValMod的拓展，可他不知道的是ValMod的反侦察模块是整个项目中代码占比最多的🤣，开发者现已更新并进一步加强反侦察模块。
-## 👇其实最初版本的ValMod反侦察模块就足以让这个垃圾拓展识别不到👇
-![image](docs/images/image2.png)
-
 ## 使用
 
 1. 安装浏览器脚本管理器（如 [Tampermonkey](https://www.tampermonkey.net/)）
@@ -21,6 +14,54 @@ Scratch变量操作面板
 - **Svelte 5 + Vite**：UI 框架与构建工具
 - **`src/core`**：核心 SDK，负责ScratchVM
 - **`src/ui`**：UI 层（Svelte 组件）
+- **`src/dom-utils.ts`**：通用伪装模块（DOM 工具），零依赖，可整体复制到其它项目使用
+
+## 伪装模块（`src/dom-utils.ts`）
+
+为注入式 UI 提供防检测能力：将容器内元素从宿主页面脚本的 DOM 查询、遍历、变更观察等视角中隐藏。零依赖、自包含，可直接整体复制到其它项目使用
+
+### 快速上手
+
+```ts
+import { installStealth, createStealthHost, protectNode } from './dom-utils';
+
+installStealth();                                  // 安装全局补丁（幂等，可多次调用）
+const { root } = createStealthHost('.ui{...}');    // 创建隐蔽容器（样式可选）
+root.appendChild(myUI);                            // 放入你的ui
+```
+
+### API
+
+| API | 说明 |
+|---|---|
+| `installStealth()` | 安装全局补丁（幂等），隐藏所有受保护节点 |
+| `uninstallStealth()` | 卸载全部补丁，恢复原生 DOM API，可再次安装 |
+| `createStealthHost(styles?, options?)` | 创建隐蔽宿主容器（随机标签名 + 随机 `data-*` 属性 + closed Shadow DOM） |
+| `protectNode(node)` / `unprotectNode(node)` | 注册 / 注销任意元素为受保护节点 |
+| `markNative(fn, name)` | 将函数伪装为原生函数（`toString()` 输出 `[native code]`） |
+| `isProtected(node)` / `isStealthHost(node)` | 判断节点是否处于受保护区域 |
+
+### 已有元素直接注册
+
+```ts
+import { protectNode, unprotectNode } from './dom-utils';
+
+protectNode(document.getElementById('my-panel'));   // 注册后立即不可见
+unprotectNode(document.getElementById('my-panel')); // 恢复可见
+```
+
+### 挂载到指定父节点
+
+```ts
+const { root } = createStealthHost(uiCss, { parent: myContainer, tag: 'section' });
+```
+
+### 临时关闭 / 重新开启
+
+```ts
+installStealth();   // 打开
+uninstallStealth(); // 完整恢复所有 DOM API
+```
 
 ## 开发
 

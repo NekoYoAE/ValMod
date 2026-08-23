@@ -1,6 +1,6 @@
 import { mount } from 'svelte';
 import { ScratchVM } from './core';
-import { createStealthHost, installStealth } from './core/stealth';
+import { createStealthHost, installStealth } from './dom-utils';
 import { shouldHalt, terminate } from './core/guard';
 import ValModPanel from './ui/ValModPanel.svelte';
 import globalCss from './styles/global.css?inline';

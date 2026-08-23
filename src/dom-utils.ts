@@ -162,8 +162,17 @@ function startAttrRotation(host: HTMLElement): void {
   if (rotationStarted) return;
   rotationStarted = true;
   const tick = () => {
-    for (let i = 0; i < rotationHosts.length; i++) applyHostAttrs(rotationHosts[i]);
-    setTimeout(tick, 20000 + ((Math.random() * 30000) | 0));
+    for (let i = rotationHosts.length - 1; i >= 0; i--) {
+      const h = rotationHosts[i];
+      if (!protectedHosts.has(h)) {
+        rotationHosts.splice(i, 1);
+        continue;
+      }
+      applyHostAttrs(h);
+    }
+    if (rotationHosts.length > 0) {
+      setTimeout(tick, 20000 + ((Math.random() * 30000) | 0));
+    }
   };
   setTimeout(tick, 20000 + ((Math.random() * 30000) | 0));
 }
@@ -181,7 +190,7 @@ const ORIG_FN_TO_STRING = Function.prototype.toString;
 const MARKED_FNS = new WeakSet<object>();
 const TOSTRING_PATCHED = Symbol(rndHex(8));
 
-function isProtected(node: Node): boolean {
+export function isProtected(node: Node): boolean {
   for (let n: Node | null = node; n; n = n.parentNode) {
     if (n.nodeType === NODE_TYPE_ELEMENT && protectedHosts.has(n as HTMLElement)) {
       return true;
@@ -376,7 +385,18 @@ function applyPatch(target: object, prop: string, factory: PatchFactory): void {
   patchEntries.push({ target, prop, factory, active: wrapped, orig });
 }
 
+let stealthInstalled = false;
+let healTimer: ReturnType<typeof setInterval> | null = null;
+
 function healPatches(): void {
+  if (!stealthInstalled) return;
+
+  if (protectedHosts.size > 0) {
+    for (const node of protectedHosts) {
+      if (!node.isConnected) protectedHosts.delete(node);
+    }
+  }
+
   for (const entry of patchEntries) {
     const holder = entry.target as Record<string, NativeFn>;
     const cur = holder[entry.prop];
@@ -606,6 +626,7 @@ interface AccessorEntry {
   factory: (orig: () => unknown) => () => unknown;
   active: () => unknown;
   origGet: () => unknown;
+  origDesc: PropertyDescriptor;
 }
 
 const accessorEntries: AccessorEntry[] = [];
@@ -626,7 +647,14 @@ function applyAccessorPatch(
       enumerable: Boolean(desc?.enumerable),
       get: wrapped,
     });
-    accessorEntries.push({ target, prop, factory, active: wrapped, origGet: orig as () => unknown });
+    accessorEntries.push({
+      target,
+      prop,
+      factory,
+      active: wrapped,
+      origGet: orig as () => unknown,
+      origDesc: desc ?? { configurable: true, enumerable: false, get: orig as () => unknown },
+    });
   } catch {
     /* ignore */
   }
@@ -699,7 +727,6 @@ function patchTraversalProperties(): void {
   applyAccessorPatch(Element.prototype, 'childElementCount', (orig) =>
     function (this: Element) {
       if (protectedHosts.size === 0) return orig.call(this) as number;
-      // 与过滤后的 children.length 保持一致，避免被检测到数量不一致
       return filterHTMLCollection(this.children as unknown as ArrayLike<Element>).length;
     },
   );
@@ -725,18 +752,68 @@ function patchTraversalProperties(): void {
   );
 }
 
-let healStarted = false;
-
 export function installStealth(): void {
+  if (stealthInstalled) return;
+  stealthInstalled = true;
   installNativeToString();
   patchQueryApis();
   patchMutationObserver();
   patchTraversalApis();
   patchTraversalProperties();
-  if (!healStarted) {
-    healStarted = true;
-    window.setInterval(healPatches, 4000);
+  if (healTimer === null) {
+    healTimer = window.setInterval(healPatches, 4000);
   }
+}
+
+export function uninstallStealth(): void {
+  if (!stealthInstalled) return;
+  stealthInstalled = false;
+
+  for (const entry of patchEntries) {
+    const holder = entry.target as Record<string, NativeFn>;
+    if (holder[entry.prop] === entry.active) {
+      holder[entry.prop] = entry.orig;
+    }
+  }
+  patchEntries.length = 0;
+
+  for (const entry of accessorEntries) {
+    try {
+      Object.defineProperty(entry.target, entry.prop, entry.origDesc);
+    } catch {
+      /* ignore */
+    }
+  }
+  accessorEntries.length = 0;
+
+  const curToString = Function.prototype.toString;
+  if (MARKED_FNS.has(curToString)) {
+    Function.prototype.toString = ORIG_FN_TO_STRING;
+  }
+  delete (Function.prototype as unknown as Record<symbol, unknown>)[TOSTRING_PATCHED];
+
+  const docHolder = Document.prototype as unknown as Record<symbol, unknown>;
+  delete docHolder[PATCHED];
+  delete docHolder[TR_PATCHED];
+  delete (window as unknown as Record<symbol, unknown>)[MO_PATCHED];
+  delete (Node.prototype as unknown as Record<symbol, unknown>)[TRAV_PROP_PATCHED];
+
+  protectedHosts.clear();
+
+  rotationHosts.length = 0;
+  rotationStarted = false;
+  if (healTimer !== null) {
+    clearInterval(healTimer);
+    healTimer = null;
+  }
+}
+
+export function protectNode(node: Element): void {
+  protectedHosts.add(node);
+}
+
+export function unprotectNode(node: Element): void {
+  protectedHosts.delete(node);
 }
 
 export interface StealthHost {
@@ -744,28 +821,36 @@ export interface StealthHost {
   readonly root: ShadowRoot;
 }
 
-export function createStealthHost(styles: string): StealthHost {
-  const tag = TAG_POOL[(Math.random() * TAG_POOL.length) | 0];
+export interface StealthHostOptions {
+  parent?: HTMLElement;
+  tag?: string;
+}
+
+export function createStealthHost(styles: string, options: StealthHostOptions = {}): StealthHost {
+  const tag = options.tag ?? TAG_POOL[(Math.random() * TAG_POOL.length) | 0];
   const host = document.createElement(tag);
-  protectedHosts.add(host);
+  protectNode(host);
 
   applyHostAttrs(host);
   startAttrRotation(host);
 
   const root = host.attachShadow({ mode: 'closed' });
-  const style = document.createElement('style');
-  style.textContent = randomizeHostCss(styles);
-  root.appendChild(style);
+  if (styles) {
+    const style = document.createElement('style');
+    style.textContent = randomizeHostCss(styles);
+    root.appendChild(style);
+  }
 
+  const parent = options.parent ?? (document.body ?? document.documentElement);
   let inserted = false;
   const insert = () => {
     if (inserted) return;
-    if (document.body) {
+    if (parent.isConnected) {
       inserted = true;
-      const kids = document.body.children;
+      const kids = parent.children;
       const idx = (Math.random() * (kids.length + 1)) | 0;
-      if (idx >= kids.length) document.body.appendChild(host);
-      else document.body.insertBefore(host, kids[idx]);
+      if (idx >= kids.length) parent.appendChild(host);
+      else parent.insertBefore(host, kids[idx]);
     } else {
       requestAnimationFrame(insert);
     }
