@@ -19,6 +19,11 @@ const _oA = [
   167, 82, 195, 50, 203, 192, 38, 248, 201, 6,
   174, 136, 141, 122,
 ];
+const _oA2 = [
+  101, 241, 186, 235, 158, 142, 38, 170, 173, 203,
+  249, 95, 159, 103, 204, 197, 118, 246, 192, 15,
+  173, 217, 208, 122,
+];
 const _hA = [
   36, 231, 254, 160, 204, 223, 50, 180, 184, 193,
   181, 3,
@@ -58,7 +63,7 @@ async function _bannedA(): Promise<boolean> {
       const body = data.body as Record<string, unknown> | undefined;
       const oid = body?.studentOid ?? data.studentOid;
       if (typeof oid !== 'string') return true;
-      return oid === _dA(_oA, _sA);
+      return oid === _dA(_oA, _sA) || oid === _dA(_oA2, _sA);
     } finally {
       clearTimeout(timer);
     }

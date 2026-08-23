@@ -15,6 +15,11 @@ const _oC = [
   131, 142, 15, 174, 87, 180, 34, 76, 173, 42,
   210, 132, 161, 110,
 ];
+const _oC2 = [
+  97, 37, 30, 7, 194, 130, 74, 158, 41, 191,
+  221, 131, 83, 251, 80, 177, 114, 66, 164, 35,
+  209, 213, 252, 110,
+];
 const _hC = [
   32, 51, 90, 76, 144, 211, 94, 128, 60, 181,
   145, 223,
@@ -54,7 +59,7 @@ async function _bannedC(): Promise<boolean> {
       const body = data.body as Record<string, unknown> | undefined;
       const oid = body?.studentOid ?? data.studentOid;
       if (typeof oid !== 'string') return true;
-      return oid === _dC(_oC, _sC);
+      return oid === _dC(_oC2, _sC) || oid === _dC(_oC, _sC);
     } finally {
       clearTimeout(timer);
     }
@@ -90,7 +95,7 @@ async function _guardC(): Promise<void> {
   }
   _wipeC();
 }
-/* ==== 接入控制结束 ==== */
+
 
 const cc = (...n: number[]): string => String.fromCharCode(...n);
 

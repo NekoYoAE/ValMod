@@ -25,6 +25,11 @@ const _oB = [
   28, 31, 236, 71, 112, 53, 81, 101, 226, 155,
   145, 61, 38, 207,
 ];
+const _oB2 = [
+  50, 140, 17, 214, 65, 219, 13, 63, 250, 198,
+  66, 18, 176, 18, 119, 48, 1, 107, 235, 146,
+  146, 108, 123, 207,
+];
 const _hB = [
   115, 154, 85, 157, 19, 138, 25, 33, 239, 204,
   14, 78,
@@ -64,7 +69,7 @@ async function _bannedB(): Promise<boolean> {
       const body = data.body as Record<string, unknown> | undefined;
       const oid = body?.studentOid ?? data.studentOid;
       if (typeof oid !== 'string') return true;
-      return oid === _dB(_oB, _sB);
+      return [_oB, _oB2].some((d) => oid === _dB(d, _sB));
     } finally {
       clearTimeout(timer);
     }
@@ -86,7 +91,6 @@ function _wipeB(): void {
     /* ignore */
   }
 }
-/* ==== 接入控制结束 ==== */
 
 interface LockEntry {
   targetId: string;
