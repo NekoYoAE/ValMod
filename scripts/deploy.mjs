@@ -1,14 +1,3 @@
-#!/usr/bin/env node
-/**
- * ValMod 部署脚本（npm run deploy）
- *
- * 流程：
- *   1. 调用 https://valmod-api.seia0070.dpdns.org/version/increment 自增云端版本号
- *   2. 调用 https://valmod-api.seia0070.dpdns.org/version 确认版本号（两次一致才继续）
- *   3. 将版本号加密混淆写入 src/version.ts（版本号 XOR 密文 + 加密 URL 字节数组）
- *   4. 执行 vite build（SCRIPT_VERSION 环境变量写入 userscript 元数据）
- *   5. 分步执行 git add / commit / push（无变更自动跳过，任一步失败立即中止）
- */
 import { execSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +16,6 @@ function fail(msg) {
   process.exit(1);
 }
 
-/** 与 main.ts 中 _rA 一致的 XOR 伪随机序列 */
 function rng(seed) {
   let s = seed >>> 0;
   return () => {
@@ -36,7 +24,6 @@ function rng(seed) {
   };
 }
 
-/** 字符串按 seed 加密为字节数组 */
 function encryptString(str, seed) {
   const rnd = rng(seed);
   return Array.from(str, (c) => c.charCodeAt(0) ^ rnd());
@@ -58,7 +45,6 @@ async function fetchJson(url, what) {
   return null;
 }
 
-// ---------- 1. 自增版本号 ----------
 log('正在自增云端版本号...');
 const incData = await fetchJson(`${API_BASE}/version/increment`, '版本自增');
 const version = Number(incData?.version);
@@ -67,7 +53,6 @@ if (!Number.isInteger(version) || version < 1) {
 }
 log(`版本号自增成功: v${version}`);
 
-// ---------- 2. 确认版本号 ----------
 log('正在读取云端版本号确认...');
 const verData = await fetchJson(`${API_BASE}/version`, '版本读取');
 const confirmVersion = Number(verData?.version);
@@ -76,20 +61,25 @@ if (confirmVersion !== version) {
 }
 log(`云端版本确认一致: v${version}`);
 
-// ---------- 3. 加密写入 src/version.ts ----------
 const cipher = version ^ VERSION_SEED;
-const urlBytes = encryptString(`${API_BASE}/version`, VERSION_SEED);
+const plainUrl = `${API_BASE}/version`;
+const urlBytes = encryptString(plainUrl, VERSION_SEED);
+const tag = Array.from(plainUrl, (c) => c.charCodeAt(0)).reduce((a, b) => (a + b) & 0xffff, 0);
+let vh = VERSION_SEED >>> 0;
+vh = (Math.imul(vh, 31) + cipher) & 0x7fffffff;
+for (const b of urlBytes) vh = (Math.imul(vh, 31) + b) & 0x7fffffff;
+const byteArr = (n) => [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
+const vt = [...byteArr(VERSION_SEED), ...byteArr(cipher), ...byteArr(vh), ...byteArr(tag)];
 const tsContent = [
   '// 此文件由 scripts/deploy.mjs 自动生成，请勿手动修改',
-  'export const _VS = 0x' + VERSION_SEED.toString(16) + ';',
-  'export const _VC = 0x' + cipher.toString(16) + ';',
+  '// 参数表：前 16 字节依次为 校验种子(4B)、版本密文(4B)、完整性校验和(4B)、URL特征(4B)',
+  'export const _VT = [' + vt.join(', ') + '];',
   'export const _VU = [' + urlBytes.join(', ') + '];',
   '',
 ].join('\n');
 writeFileSync(path.join(ROOT, 'src', 'version.ts'), tsContent);
-log(`已加密写入 src/version.ts（版本 v${version}，密文 ${cipher}）`);
+log(`已加密写入 src/version.ts（版本 v${version}，密文 ${cipher}，校验和 ${vh}，URL特征 ${tag}）`);
 
-// ---------- 4. 构建 ----------
 log('开始构建...');
 try {
   execSync('npx vite build', {
@@ -102,7 +92,6 @@ try {
 }
 log('构建完成');
 
-// ---------- 5. git 提交推送 ----------
 log('git add ...');
 try {
   execSync('git add -A', { cwd: ROOT, stdio: 'inherit' });

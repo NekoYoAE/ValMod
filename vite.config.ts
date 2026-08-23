@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import monkey from 'vite-plugin-monkey';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { obfuscateUserscript } from './scripts/obfuscate.mjs';
+import { versionGuardPlugin } from './scripts/version-guard.mjs';
 
 const match = [
   'https://scratch.mit.edu/*', // Scratch
@@ -20,22 +21,40 @@ const updateMeta = pagesUrl
     }
   : {};
 
-// 优先使用部署脚本传入的 SCRIPT_VERSION；否则从 src/version.ts 读取加密版本号
+const VERSION_SEED = 0x4b5a0f3c;
 let scriptVersion = process.env.SCRIPT_VERSION ?? '';
 if (!scriptVersion) {
+  let content = '';
   try {
-    const content = readFileSync(new URL('./src/version.ts', import.meta.url), 'utf-8');
-    const seed = Number(content.match(/_VS = (0x[0-9a-fA-F]+)/)?.[1] ?? 0);
-    const cipher = Number(content.match(/_VC = (0x[0-9a-fA-F]+)/)?.[1] ?? 0);
-    if (seed && cipher) scriptVersion = String(cipher ^ seed);
+    content = readFileSync(new URL('./src/version.ts', import.meta.url), 'utf-8');
   } catch {
-    /* 忽略 */
+    throw new Error('[构建中止]');
   }
+  const vt = (content.match(/_VT = \[([\s\S]*?)\]/)?.[1] ?? '')
+    .split(',')
+    .map((s) => Number(s.trim()));
+  const vu = (content.match(/_VU = \[([\s\S]*?)\]/)?.[1] ?? '')
+    .split(',')
+    .map((s) => Number(s.trim()));
+  const rd = (o: number) => ((vt[o] << 24) | (vt[o + 1] << 16) | (vt[o + 2] << 8) | vt[o + 3]) >>> 0;
+  const seed = vt.length >= 16 ? rd(0) : 0;
+  const cipher = vt.length >= 16 ? rd(4) : 0;
+  const vh = vt.length >= 16 ? rd(8) : 0;
+  if (!seed || !cipher || !vh || vu.length === 0) {
+    throw new Error('[构建中止]');
+  }
+  if (seed !== VERSION_SEED) {
+    throw new Error('[构建中止]');
+  }
+  scriptVersion = String((cipher ^ seed) >>> 0);
 }
-if (!scriptVersion) scriptVersion = '0.1';
+if (!scriptVersion) {
+  throw new Error('[构建中止]');
+}
 
 export default defineConfig({
   plugins: [
+    versionGuardPlugin(),
     svelte(),
     monkey({
       entry: 'src/main.ts',

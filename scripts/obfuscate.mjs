@@ -18,7 +18,8 @@ export function obfuscateUserscript() {
 
         const result = javascriptObfuscator.obfuscate(body, {
           compact: true,
-          controlFlowFlattening: false,
+          controlFlowFlattening: true,
+          controlFlowFlatteningThreshold: 0.3,
           deadCodeInjection: false,
           debugProtection: false,
           disableConsoleOutput: false,
@@ -26,9 +27,10 @@ export function obfuscateUserscript() {
           renameGlobals: false,
           selfDefending: false,
           simplify: true,
-          splitStrings: false,
+          splitStrings: true,
+          splitStringsChunkLength: 8,
           stringArray: true,
-          stringArrayEncoding: ['base64'],
+          stringArrayEncoding: ['base64', 'rc4'],
           stringArrayThreshold: 1,
           transformObjectKeys: false,
           unicodeEscapeSequence: false,
