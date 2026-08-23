@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "deploy": "git add -A && git commit -m \"deploy: auto update\" && git push origin main"
+    "deploy": "node scripts/deploy.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.3",

@@ -35,3 +35,4 @@ Thumbs.db
 # Svelte / Vite cache
 .svelte-kit
 .vite
+/api

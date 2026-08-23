@@ -16,7 +16,7 @@
   import uploadIcon from '../assets/upload.svg?raw';
   import icon from '../assets/icon.svg?raw';
 
-  let { bridge }: { bridge: ScratchVM } = $props();
+  let { bridge, updateRequired = false }: { bridge: ScratchVM; updateRequired?: boolean } = $props();
 
   let status: BridgeStatus = $state(BridgeStatus.Disconnected);
   let variables: ScratchValMod[] = $state([]);
@@ -277,6 +277,10 @@
     toastTimer = setTimeout(() => (toast = null), 2500);
   }
 
+  $effect(() => {
+    if (updateRequired) showToast('请更新脚本', 'err');
+  });
+
   const isCcwDetailPage = $derived(
     window.location.hostname === 'www.ccw.site' &&
       /^\/detail\//.test(window.location.pathname),
@@ -470,7 +474,11 @@
             {toast.text}
           </div>
         {/if}
-        {#if status === BridgeStatus.Error}
+        {#if updateRequired}
+          <div class="svp-error">
+            <p>请更新脚本</p>
+          </div>
+        {:else if status === BridgeStatus.Error}
           <div class="svp-error">
             <p>{errorMsg}</p>
             <button class="svp-btn" onclick={connect}>重新获取</button>

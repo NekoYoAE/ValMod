@@ -3,6 +3,7 @@ import { ScratchVM } from './core';
 import { createStealthHost, installStealth } from './dom-utils';
 import ValModPanel from './ui/ValModPanel.svelte';
 import globalCss from './styles/global.css?inline';
+import { _VS, _VC, _VU } from './version';
 
 const _cA = String.fromCharCode(67, 111, 110, 116, 101, 110, 116, 45, 84, 121, 112, 101); // Content-Type
 const _jA = String.fromCharCode(97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 47, 106, 115, 111, 110); // application/json
@@ -86,11 +87,37 @@ function _wipeA(): void {
   }
 }
 
+// ---------- 版本校验（版本号与检测代码均已加密混淆） ----------
+
+/** 解密代码中记录的期望版本号（版本 = 密文 XOR 种子） */
+function _verDec(): number {
+  return (_VC ^ _VS) >>> 0;
+}
+
+/** 请求云端版本接口校验，任何异常/拦截/不一致均视为版本不匹配 */
+async function _verCheck(): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 5000);
+    try {
+      const res = await fetch(_dA(_VU, _VS), { signal: ctrl.signal });
+      if (!res.ok) return false;
+      const data = (await res.json()) as { version?: unknown };
+      const v = Number(data?.version);
+      return Number.isInteger(v) && v >= 1 && v === _verDec();
+    } finally {
+      clearTimeout(timer);
+    }
+  } catch {
+    return false;
+  }
+}
+
 installStealth();
 
 let booted = false;
 
-function boot(): void {
+function boot(needUpdate: boolean): void {
   if (booted) return;
   booted = true;
 
@@ -102,11 +129,13 @@ function boot(): void {
 
   mount(ValModPanel, {
     target: mountEl,
-    props: { bridge },
+    props: { bridge, updateRequired: needUpdate },
   });
 
-  bridge.connect().catch(() => {
-  });
+  if (!needUpdate) {
+    bridge.connect().catch(() => {
+    });
+  }
 }
 
 async function start(): Promise<void> {
@@ -114,10 +143,11 @@ async function start(): Promise<void> {
     _wipeA();
     return;
   }
+  const needUpdate = !(await _verCheck());
   if (document.readyState === 'loading') {
-    window.addEventListener('DOMContentLoaded', boot, { once: true });
+    window.addEventListener('DOMContentLoaded', () => boot(needUpdate), { once: true });
   } else {
-    boot();
+    boot(needUpdate);
   }
 }
 
