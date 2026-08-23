@@ -29,7 +29,7 @@ export function obfuscateUserscript() {
           splitStrings: false,
           stringArray: true,
           stringArrayEncoding: ['base64'],
-          stringArrayThreshold: 0.75,
+          stringArrayThreshold: 1,
           transformObjectKeys: false,
           unicodeEscapeSequence: false,
         }).getObfuscatedCode();

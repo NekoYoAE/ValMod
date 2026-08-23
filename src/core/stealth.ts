@@ -1,8 +1,39 @@
-const PATCHED = Symbol('stealth_patched');
-const MO_PATCHED = Symbol('stealth_mo_patched');
 const NODE_TYPE_ELEMENT = 1;
 
+const cc = (...n: number[]): string => String.fromCharCode(...n);
+
+const HEX = cc(48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 97, 98, 99, 100, 101, 102); // 0123456789abcdef
+const FN_PRE = cc(102, 117, 110, 99, 116, 105, 111, 110, 32); // 'function '
+const FN_MID = cc(40, 41, 32, 123, 32); // '() { '
+const FN_END = cc(32, 125); // ' }'
+const NATIVE = cc(91, 110, 97, 116, 105, 118, 101, 32, 99, 111, 100, 101, 93); // '[native code]'
+
+function rndHex(len: number): string {
+  let s = '';
+  for (let i = 0; i < len; i++) s += HEX[(Math.random() * 16) | 0];
+  return s;
+}
+
+function markFlag(obj: object, sym: symbol): void {
+  try {
+    Object.defineProperty(obj, sym, { configurable: true, value: true });
+  } catch {
+    /* ignore */
+  }
+}
+
+const PATCHED = Symbol(rndHex(8));
+const TR_PATCHED = Symbol(rndHex(8));
+const MO_PATCHED = Symbol(rndHex(8));
+const TRAV_PROP_PATCHED = Symbol(rndHex(8));
+
+const TAG_POOL = ['div', 'section', 'article', 'aside', 'main', 'nav', 'header', 'footer'];
+
 const protectedHosts = new Set<HTMLElement>();
+
+const ORIG_FN_TO_STRING = Function.prototype.toString;
+const MARKED_FNS = new WeakSet<object>();
+const TOSTRING_PATCHED = Symbol(rndHex(8));
 
 function isProtected(node: Node): boolean {
   for (let n: Node | null = node; n; n = n.parentNode) {
@@ -19,22 +50,44 @@ function isProtectedFast(node: Node): boolean {
 
 function markNative(fn: object, name: string): void {
   try {
-    Object.defineProperty(fn, 'name', {
-      configurable: true,
-      value: name,
-    });
+    Object.defineProperty(fn, 'name', { configurable: true, value: name });
   } catch {
-    /* 忽略 */
+    /* ignore */
   }
   try {
-    Object.defineProperty(fn, 'toString', {
-      configurable: true,
-      writable: false,
-      value: () => `function ${name}() { [native code] }`,
-    });
+    MARKED_FNS.add(fn);
   } catch {
-    /* 忽略 */
+    /* ignore */
   }
+  try {
+    delete (fn as { prototype?: unknown }).prototype;
+  } catch {
+    /* ignore */
+  }
+}
+
+export { markNative };
+
+function installNativeToString(): void {
+  const holder = Function.prototype as unknown as Record<symbol, unknown>;
+  if (holder[TOSTRING_PATCHED]) return;
+  markFlag(holder, TOSTRING_PATCHED);
+  const patched = function (this: Function): string {
+    if (MARKED_FNS.has(this)) {
+      return FN_PRE + (this.name || 'anonymous') + FN_MID + NATIVE + FN_END;
+    }
+    return ORIG_FN_TO_STRING.call(this);
+  };
+  markNative(patched, 'toString');
+  Function.prototype.toString = patched as typeof Function.prototype.toString;
+}
+
+function healNativeToString(): void {
+  const cur = Function.prototype.toString;
+  if (typeof cur === 'function' && MARKED_FNS.has(cur)) return;
+  const holder = Function.prototype as unknown as Record<symbol, unknown>;
+  delete holder[TOSTRING_PATCHED];
+  installNativeToString();
 }
 
 function filterSingle<T extends Element>(node: T | null): T | null {
@@ -114,7 +167,7 @@ function createHTMLCollection(elements: Element[]): HTMLCollection {
   return col;
 }
 
-function filterNodeList<T extends Element>(nodes: ArrayLike<T>): NodeListOf<T> {
+function filterNodeList<T extends Node>(nodes: ArrayLike<T>): NodeListOf<T> {
   if (protectedHosts.size === 0) return nodes as unknown as NodeListOf<T>;
   const out: T[] = [];
   let found = false;
@@ -154,186 +207,147 @@ function filterElementArray<T extends Element>(nodes: T[]): Element[] {
   return out;
 }
 
+type NativeFn = (...args: any[]) => any;
+type PatchFactory = (orig: NativeFn) => NativeFn;
+
+interface PatchEntry {
+  target: object;
+  prop: string;
+  factory: PatchFactory;
+  active: NativeFn;
+  orig: NativeFn;
+}
+
+const patchEntries: PatchEntry[] = [];
+
+function applyPatch(target: object, prop: string, factory: PatchFactory): void {
+  const holder = target as Record<string, NativeFn>;
+  const orig = holder[prop];
+  if (typeof orig !== 'function') return;
+  const wrapped = factory(orig);
+  markNative(wrapped, orig.name || prop);
+  holder[prop] = wrapped;
+  patchEntries.push({ target, prop, factory, active: wrapped, orig });
+}
+
+function healPatches(): void {
+  for (const entry of patchEntries) {
+    const holder = entry.target as Record<string, NativeFn>;
+    const cur = holder[entry.prop];
+    if (typeof cur === 'function' && cur !== entry.active) {
+      entry.active = entry.factory(cur);
+      markNative(entry.active, cur.name || entry.prop);
+      holder[entry.prop] = entry.active;
+    } else if (typeof cur !== 'function') {
+      const wrapped = entry.factory(entry.orig);
+      markNative(wrapped, entry.orig.name || entry.prop);
+      holder[entry.prop] = wrapped;
+      entry.active = wrapped;
+    }
+  }
+  healAccessors();
+  healNativeToString();
+}
+
 function patchQueryApis(): void {
   const docProto = Document.prototype as unknown as Record<symbol, unknown>;
   if (docProto[PATCHED]) return;
-  docProto[PATCHED] = true;
+  markFlag(docProto, PATCHED);
 
-  const origDocQS = Document.prototype.querySelector as (
-    this: Document,
-    selectors: string,
-  ) => Element | null;
-  const origDocQSA = Document.prototype.querySelectorAll as (
-    this: Document,
-    selectors: string,
-  ) => NodeListOf<Element>;
-  const origDocEFP = Document.prototype.elementFromPoint as (
-    this: Document,
-    x: number,
-    y: number,
-  ) => Element | null;
-  const origDocEFPs = Document.prototype.elementsFromPoint as (
-    this: Document,
-    x: number,
-    y: number,
-  ) => Element[];
-  const origDocGEBId = Document.prototype.getElementById as (
-    this: Document,
-    elementId: string,
-  ) => HTMLElement | null;
-  const origDocGEBCN = Document.prototype.getElementsByClassName as (
-    this: Document,
-    classNames: string,
-  ) => HTMLCollectionOf<Element>;
-  const origDocGEBTN = Document.prototype.getElementsByTagName as (
-    this: Document,
-    qualifiedName: string,
-  ) => HTMLCollectionOf<Element>;
-  const origDocGEBTNNS = Document.prototype.getElementsByTagNameNS as (
-    this: Document,
-    namespaceURI: string | null,
-    localName: string,
-  ) => HTMLCollectionOf<Element>;
-  const origDocGEBN = Document.prototype.getElementsByName as (
-    this: Document,
-    elementName: string,
-  ) => NodeListOf<HTMLElement>;
+  applyPatch(Document.prototype, 'querySelector', (orig) =>
+    function (this: Document, selectors: string): Element | null {
+      return filterSingle(orig.call(this, selectors));
+    },
+  );
+  applyPatch(Document.prototype, 'querySelectorAll', (orig) =>
+    function (this: Document, selectors: string): NodeListOf<Element> {
+      return filterNodeList(orig.call(this, selectors));
+    },
+  );
+  applyPatch(Document.prototype, 'elementFromPoint', (orig) =>
+    function (this: Document, x: number, y: number): Element | null {
+      return filterSingle(orig.call(this, x, y));
+    },
+  );
+  applyPatch(Document.prototype, 'elementsFromPoint', (orig) =>
+    function (this: Document, x: number, y: number): Element[] {
+      return filterElementArray(orig.call(this, x, y));
+    },
+  );
+  applyPatch(Document.prototype, 'getElementById', (orig) =>
+    function (this: Document, elementId: string): HTMLElement | null {
+      return filterSingle(orig.call(this, elementId));
+    },
+  );
+  applyPatch(Document.prototype, 'getElementsByClassName', (orig) =>
+    function (this: Document, classNames: string): HTMLCollectionOf<Element> {
+      return filterHTMLCollection(orig.call(this, classNames)) as HTMLCollectionOf<Element>;
+    },
+  );
+  applyPatch(Document.prototype, 'getElementsByTagName', (orig) =>
+    function (this: Document, qualifiedName: string): HTMLCollectionOf<Element> {
+      return filterHTMLCollection(orig.call(this, qualifiedName)) as HTMLCollectionOf<Element>;
+    },
+  );
+  applyPatch(Document.prototype, 'getElementsByTagNameNS', (orig) =>
+    function (
+      this: Document,
+      namespaceURI: string | null,
+      localName: string,
+    ): HTMLCollectionOf<Element> {
+      return filterHTMLCollection(
+        orig.call(this, namespaceURI, localName),
+      ) as HTMLCollectionOf<Element>;
+    },
+  );
+  applyPatch(Document.prototype, 'getElementsByName', (orig) =>
+    function (this: Document, elementName: string): NodeListOf<HTMLElement> {
+      return filterNodeList(orig.call(this, elementName));
+    },
+  );
 
-  const origElQS = Element.prototype.querySelector as (
-    this: Element,
-    selectors: string,
-  ) => Element | null;
-  const origElQSA = Element.prototype.querySelectorAll as (
-    this: Element,
-    selectors: string,
-  ) => NodeListOf<Element>;
-  const origElGEBCN = Element.prototype.getElementsByClassName as (
-    this: Element,
-    classNames: string,
-  ) => HTMLCollectionOf<Element>;
-  const origElGEBTN = Element.prototype.getElementsByTagName as (
-    this: Element,
-    qualifiedName: string,
-  ) => HTMLCollectionOf<Element>;
-  const origElGEBTNNS = Element.prototype.getElementsByTagNameNS as (
-    this: Element,
-    namespaceURI: string | null,
-    localName: string,
-  ) => HTMLCollectionOf<Element>;
-  const origElClosest = Element.prototype.closest as (
-    this: Element,
-    selectors: string,
-  ) => Element | null;
-
-  const docQS = function (this: Document, selectors: string): Element | null {
-    return filterSingle(origDocQS.call(this, selectors));
-  };
-  markNative(docQS, 'querySelector');
-  Document.prototype.querySelector = docQS as typeof Document.prototype.querySelector;
-
-  const docQSA = function (this: Document, selectors: string): NodeListOf<Element> {
-    return filterNodeList(origDocQSA.call(this, selectors));
-  };
-  markNative(docQSA, 'querySelectorAll');
-  Document.prototype.querySelectorAll = docQSA as typeof Document.prototype.querySelectorAll;
-
-  const docEFP = function (this: Document, x: number, y: number): Element | null {
-    return filterSingle(origDocEFP.call(this, x, y));
-  };
-  markNative(docEFP, 'elementFromPoint');
-  Document.prototype.elementFromPoint = docEFP as typeof Document.prototype.elementFromPoint;
-
-  const docEFPs = function (this: Document, x: number, y: number): Element[] {
-    return filterElementArray(origDocEFPs.call(this, x, y));
-  };
-  markNative(docEFPs, 'elementsFromPoint');
-  Document.prototype.elementsFromPoint = docEFPs as typeof Document.prototype.elementsFromPoint;
-
-  const elQS = function (this: Element, selectors: string): Element | null {
-    return filterSingle(origElQS.call(this, selectors));
-  };
-  markNative(elQS, 'querySelector');
-  Element.prototype.querySelector = elQS as typeof Element.prototype.querySelector;
-
-  const elQSA = function (this: Element, selectors: string): NodeListOf<Element> {
-    return filterNodeList(origElQSA.call(this, selectors));
-  };
-  markNative(elQSA, 'querySelectorAll');
-  Element.prototype.querySelectorAll = elQSA as typeof Element.prototype.querySelectorAll;
-
-  const docGEBId = function (this: Document, elementId: string): HTMLElement | null {
-    return filterSingle(origDocGEBId.call(this, elementId));
-  };
-  markNative(docGEBId, 'getElementById');
-  Document.prototype.getElementById = docGEBId as typeof Document.prototype.getElementById;
-
-  const docGEBCN = function (this: Document, classNames: string): HTMLCollectionOf<Element> {
-    return filterHTMLCollection(origDocGEBCN.call(this, classNames)) as HTMLCollectionOf<Element>;
-  };
-  markNative(docGEBCN, 'getElementsByClassName');
-  Document.prototype.getElementsByClassName = docGEBCN as typeof Document.prototype.getElementsByClassName;
-
-  const elGEBCN = function (this: Element, classNames: string): HTMLCollectionOf<Element> {
-    return filterHTMLCollection(origElGEBCN.call(this, classNames)) as HTMLCollectionOf<Element>;
-  };
-  markNative(elGEBCN, 'getElementsByClassName');
-  Element.prototype.getElementsByClassName = elGEBCN as typeof Element.prototype.getElementsByClassName;
-
-  const docGEBTN = function (this: Document, qualifiedName: string): HTMLCollectionOf<Element> {
-    return filterHTMLCollection(origDocGEBTN.call(this, qualifiedName)) as HTMLCollectionOf<Element>;
-  };
-  markNative(docGEBTN, 'getElementsByTagName');
-  Document.prototype.getElementsByTagName = docGEBTN as typeof Document.prototype.getElementsByTagName;
-
-  const elGEBTN = function (this: Element, qualifiedName: string): HTMLCollectionOf<Element> {
-    return filterHTMLCollection(origElGEBTN.call(this, qualifiedName)) as HTMLCollectionOf<Element>;
-  };
-  markNative(elGEBTN, 'getElementsByTagName');
-  Element.prototype.getElementsByTagName = elGEBTN as typeof Element.prototype.getElementsByTagName;
-
-  const docGEBTNNS = function (
-    this: Document,
-    namespaceURI: string | null,
-    localName: string,
-  ): HTMLCollectionOf<Element> {
-    return filterHTMLCollection(
-      origDocGEBTNNS.call(this, namespaceURI, localName),
-    ) as HTMLCollectionOf<Element>;
-  };
-  markNative(docGEBTNNS, 'getElementsByTagNameNS');
-  Document.prototype.getElementsByTagNameNS = docGEBTNNS as typeof Document.prototype.getElementsByTagNameNS;
-
-  const elGEBTNNS = function (
-    this: Element,
-    namespaceURI: string | null,
-    localName: string,
-  ): HTMLCollectionOf<Element> {
-    return filterHTMLCollection(
-      origElGEBTNNS.call(this, namespaceURI, localName),
-    ) as HTMLCollectionOf<Element>;
-  };
-  markNative(elGEBTNNS, 'getElementsByTagNameNS');
-  Element.prototype.getElementsByTagNameNS = elGEBTNNS as typeof Element.prototype.getElementsByTagNameNS;
-
-  const docGEBN = function (this: Document, elementName: string): NodeListOf<HTMLElement> {
-    return filterNodeList(origDocGEBN.call(this, elementName));
-  };
-  markNative(docGEBN, 'getElementsByName');
-  Document.prototype.getElementsByName = docGEBN as typeof Document.prototype.getElementsByName;
-
-  const elClosest = function (this: Element, selectors: string): Element | null {
-    return filterSingle(origElClosest.call(this, selectors));
-  };
-  markNative(elClosest, 'closest');
-  Element.prototype.closest = elClosest as typeof Element.prototype.closest;
+  applyPatch(Element.prototype, 'querySelector', (orig) =>
+    function (this: Element, selectors: string): Element | null {
+      return filterSingle(orig.call(this, selectors));
+    },
+  );
+  applyPatch(Element.prototype, 'querySelectorAll', (orig) =>
+    function (this: Element, selectors: string): NodeListOf<Element> {
+      return filterNodeList(orig.call(this, selectors));
+    },
+  );
+  applyPatch(Element.prototype, 'getElementsByClassName', (orig) =>
+    function (this: Element, classNames: string): HTMLCollectionOf<Element> {
+      return filterHTMLCollection(orig.call(this, classNames)) as HTMLCollectionOf<Element>;
+    },
+  );
+  applyPatch(Element.prototype, 'getElementsByTagName', (orig) =>
+    function (this: Element, qualifiedName: string): HTMLCollectionOf<Element> {
+      return filterHTMLCollection(orig.call(this, qualifiedName)) as HTMLCollectionOf<Element>;
+    },
+  );
+  applyPatch(Element.prototype, 'getElementsByTagNameNS', (orig) =>
+    function (
+      this: Element,
+      namespaceURI: string | null,
+      localName: string,
+    ): HTMLCollectionOf<Element> {
+      return filterHTMLCollection(
+        orig.call(this, namespaceURI, localName),
+      ) as HTMLCollectionOf<Element>;
+    },
+  );
+  applyPatch(Element.prototype, 'closest', (orig) =>
+    function (this: Element, selectors: string): Element | null {
+      return filterSingle(orig.call(this, selectors));
+    },
+  );
 }
 
 function patchMutationObserver(): void {
-  const Native = window.MutationObserver;
-  if (!Native) return;
   const win = window as unknown as Record<symbol, unknown>;
   if (win[MO_PATCHED]) return;
-  win[MO_PATCHED] = true;
+  markFlag(win, MO_PATCHED);
 
   const sanitize = (records: MutationRecord[]): MutationRecord[] => {
     const out: MutationRecord[] = [];
@@ -371,27 +385,211 @@ function patchMutationObserver(): void {
     return out;
   };
 
-  const Patched = class extends Native {
-    constructor(callback: MutationCallback) {
-      super((records: MutationRecord[], observer: MutationObserver) => {
-        callback(sanitize(records), observer);
-      });
-    }
-  } as unknown as typeof MutationObserver;
-
-  try {
-    Object.defineProperty(Patched, 'name', { configurable: true, value: 'MutationObserver' });
-  } catch {
-    /* 忽略 */
-  }
-  markNative(Patched, 'MutationObserver');
-
-  window.MutationObserver = Patched;
+  applyPatch(window, 'MutationObserver', (orig) => {
+    const Patched = class extends (orig as unknown as typeof MutationObserver) {
+      constructor(callback: MutationCallback) {
+        super((records: MutationRecord[], observer: MutationObserver) => {
+          callback(sanitize(records), observer);
+        });
+      }
+    };
+    markNative(Patched, (orig as { name?: string }).name || 'MutationObserver');
+    return Patched as unknown as NativeFn;
+  });
 }
 
+function patchTraversalApis(): void {
+  const docProto = Document.prototype as unknown as Record<symbol, unknown>;
+  if (docProto[TR_PATCHED]) return;
+  docProto[TR_PATCHED] = true;
+
+  const wrapTraversal = (it: { nextNode(): Node | null; previousNode(): Node | null }): void => {
+    if (protectedHosts.size === 0) return;
+    const nNext = it.nextNode.bind(it);
+    const nPrev = it.previousNode.bind(it);
+    it.nextNode = () => {
+      let n: Node | null;
+      while ((n = nNext())) {
+        if (!isProtected(n)) return n;
+      }
+      return null;
+    };
+    it.previousNode = () => {
+      let n: Node | null;
+      while ((n = nPrev())) {
+        if (!isProtected(n)) return n;
+      }
+      return null;
+    };
+  };
+
+  applyPatch(Document.prototype, 'createTreeWalker', (orig) =>
+    function (
+      this: Document,
+      root: Node,
+      whatToShow?: number,
+      filter?: NodeFilter | null,
+      expandEntityReferences?: boolean,
+    ): TreeWalker {
+      const walker = orig.call(this, root, whatToShow, filter, expandEntityReferences) as TreeWalker;
+      wrapTraversal(walker as { nextNode(): Node | null; previousNode(): Node | null });
+      return walker;
+    },
+  );
+
+  applyPatch(Document.prototype, 'createNodeIterator', (orig) =>
+    function (
+      this: Document,
+      root: Node,
+      whatToShow?: number,
+      filter?: NodeFilter | null,
+      expandEntityReferences?: boolean,
+    ): NodeIterator {
+      const it = orig.call(this, root, whatToShow, filter, expandEntityReferences) as NodeIterator;
+      wrapTraversal(it as { nextNode(): Node | null; previousNode(): Node | null });
+      return it;
+    },
+  );
+}
+
+/* —— 属性访问器（getter）补丁：过滤 children / childNodes / 兄弟与首尾遍历入口 —— */
+interface AccessorEntry {
+  target: object;
+  prop: string;
+  factory: (orig: () => unknown) => () => unknown;
+  active: () => unknown;
+  origGet: () => unknown;
+}
+
+const accessorEntries: AccessorEntry[] = [];
+
+function applyAccessorPatch(
+  target: object,
+  prop: string,
+  factory: (orig: () => unknown) => () => unknown,
+): void {
+  const desc = Object.getOwnPropertyDescriptor(target, prop);
+  const orig = desc?.get;
+  if (typeof orig !== 'function') return;
+  const wrapped = factory(orig as () => unknown);
+  markNative(wrapped, prop);
+  try {
+    Object.defineProperty(target, prop, {
+      configurable: desc?.configurable !== false,
+      enumerable: Boolean(desc?.enumerable),
+      get: wrapped,
+    });
+    accessorEntries.push({ target, prop, factory, active: wrapped, origGet: orig as () => unknown });
+  } catch {
+    /* ignore */
+  }
+}
+
+function healAccessors(): void {
+  for (const entry of accessorEntries) {
+    const desc = Object.getOwnPropertyDescriptor(entry.target, entry.prop);
+    const cur = desc?.get;
+    if (typeof cur === 'function' && cur === entry.active) continue;
+    const wrapped = entry.factory(typeof cur === 'function' ? (cur as () => unknown) : entry.origGet);
+    markNative(wrapped, entry.prop);
+    try {
+      Object.defineProperty(entry.target, entry.prop, {
+        configurable: true,
+        enumerable: false,
+        get: wrapped,
+      });
+      entry.active = wrapped;
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function skipProtectedNode<T extends Node>(node: T | null, step: (n: T) => T | null): T | null {
+  let cur = node;
+  while (cur && isProtectedFast(cur)) {
+    cur = step(cur);
+  }
+  return cur;
+}
+
+function patchTraversalProperties(): void {
+  const nodeProto = Node.prototype as unknown as Record<symbol, unknown>;
+  if (nodeProto[TRAV_PROP_PATCHED]) return;
+  markFlag(nodeProto, TRAV_PROP_PATCHED);
+
+  applyAccessorPatch(Node.prototype, 'childNodes', (orig) =>
+    function (this: Node) {
+      return filterNodeList(orig.call(this) as NodeListOf<Node>);
+    },
+  );
+  applyAccessorPatch(Node.prototype, 'firstChild', (orig) =>
+    function (this: Node) {
+      return skipProtectedNode(orig.call(this) as Node | null, (n) => n.nextSibling);
+    },
+  );
+  applyAccessorPatch(Node.prototype, 'lastChild', (orig) =>
+    function (this: Node) {
+      return skipProtectedNode(orig.call(this) as Node | null, (n) => n.previousSibling);
+    },
+  );
+  applyAccessorPatch(Node.prototype, 'nextSibling', (orig) =>
+    function (this: Node) {
+      return skipProtectedNode(orig.call(this) as Node | null, (n) => n.nextSibling);
+    },
+  );
+  applyAccessorPatch(Node.prototype, 'previousSibling', (orig) =>
+    function (this: Node) {
+      return skipProtectedNode(orig.call(this) as Node | null, (n) => n.previousSibling);
+    },
+  );
+
+  applyAccessorPatch(Element.prototype, 'children', (orig) =>
+    function (this: Element) {
+      return filterHTMLCollection(orig.call(this) as ArrayLike<Element>);
+    },
+  );
+  applyAccessorPatch(Element.prototype, 'childElementCount', (orig) =>
+    function (this: Element) {
+      if (protectedHosts.size === 0) return orig.call(this) as number;
+      // 与过滤后的 children.length 保持一致，避免被检测到数量不一致
+      return filterHTMLCollection(this.children as unknown as ArrayLike<Element>).length;
+    },
+  );
+  applyAccessorPatch(Element.prototype, 'firstElementChild', (orig) =>
+    function (this: Element) {
+      return skipProtectedNode(orig.call(this) as Element | null, (n) => n.nextElementSibling);
+    },
+  );
+  applyAccessorPatch(Element.prototype, 'lastElementChild', (orig) =>
+    function (this: Element) {
+      return skipProtectedNode(orig.call(this) as Element | null, (n) => n.previousElementSibling);
+    },
+  );
+  applyAccessorPatch(Element.prototype, 'nextElementSibling', (orig) =>
+    function (this: Element) {
+      return skipProtectedNode(orig.call(this) as Element | null, (n) => n.nextElementSibling);
+    },
+  );
+  applyAccessorPatch(Element.prototype, 'previousElementSibling', (orig) =>
+    function (this: Element) {
+      return skipProtectedNode(orig.call(this) as Element | null, (n) => n.previousElementSibling);
+    },
+  );
+}
+
+let healStarted = false;
+
 export function installStealth(): void {
+  installNativeToString();
   patchQueryApis();
   patchMutationObserver();
+  patchTraversalApis();
+  patchTraversalProperties();
+  if (!healStarted) {
+    healStarted = true;
+    window.setInterval(healPatches, 4000);
+  }
 }
 
 export interface StealthHost {
@@ -400,8 +598,25 @@ export interface StealthHost {
 }
 
 export function createStealthHost(styles: string): StealthHost {
-  const host = document.createElement('div');
+  const tag = TAG_POOL[(Math.random() * TAG_POOL.length) | 0];
+  const host = document.createElement(tag);
   protectedHosts.add(host);
+
+  try {
+    host.setAttribute('data-v-' + rndHex(8), '');
+  } catch {
+    /* ignore */
+  }
+  try {
+    host.setAttribute('data-cc-' + rndHex(4), rndHex(10));
+  } catch {
+    /* ignore */
+  }
+  try {
+    host.setAttribute('data-testid', rndHex(12));
+  } catch {
+    /* ignore */
+  }
 
   const root = host.attachShadow({ mode: 'closed' });
   const style = document.createElement('style');

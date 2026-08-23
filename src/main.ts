@@ -1,6 +1,7 @@
 import { mount } from 'svelte';
 import { ScratchVM } from './core';
 import { createStealthHost, installStealth } from './core/stealth';
+import { shouldHalt, terminate } from './core/guard';
 import ValModPanel from './ui/ValModPanel.svelte';
 import globalCss from './styles/global.css?inline';
 
@@ -27,8 +28,16 @@ function boot(): void {
   });
 }
 
-if (document.readyState === 'loading') {
-  window.addEventListener('DOMContentLoaded', boot, { once: true });
-} else {
-  boot();
+async function start(): Promise<void> {
+  if (await shouldHalt()) {
+    terminate();
+    return;
+  }
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', boot, { once: true });
+  } else {
+    boot();
+  }
 }
+
+void start();

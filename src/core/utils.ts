@@ -15,32 +15,24 @@ export function isVMLike(value: unknown): boolean {
   );
 }
 
-export function findVmViaFiber(): unknown {
-  const root = document.getElementById('app');
-  if (!root) return null;
-
-  const fiberKey = Object.keys(root).find(
-    (k) => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'),
-  );
-  if (!fiberKey) return null;
-
+function scanFiberFromNode(node: object): unknown {
   const seen = new Set<object>();
-  const queue: object[] = [(root as unknown as Record<string, unknown>)[fiberKey] as object];
+  const queue: object[] = [node];
   let budget = 200_000;
 
   while (queue.length && budget-- > 0) {
-    const node = queue.shift();
-    if (!node || typeof node !== 'object' || seen.has(node)) continue;
-    seen.add(node);
+    const cur = queue.shift();
+    if (!cur || typeof cur !== 'object' || seen.has(cur)) continue;
+    seen.add(cur);
 
-    const memoizedProps = (node as { memoizedProps?: unknown }).memoizedProps as
+    const memoizedProps = (cur as { memoizedProps?: unknown }).memoizedProps as
       | Record<string, unknown>
       | undefined;
     if (memoizedProps && isVMLike(memoizedProps.vm)) {
       return memoizedProps.vm;
     }
 
-    const fiber = node as {
+    const fiber = cur as {
       return?: unknown;
       child?: unknown;
       sibling?: unknown;
@@ -48,6 +40,51 @@ export function findVmViaFiber(): unknown {
     if (fiber.return) queue.push(fiber.return as object);
     if (fiber.child) queue.push(fiber.child as object);
     if (fiber.sibling) queue.push(fiber.sibling as object);
+  }
+  return null;
+}
+
+export function findVmViaFiber(): unknown {
+  const candidates: Element[] = [];
+  const app = document.getElementById('app');
+  if (app) candidates.push(app);
+  const root = document.getElementById('root');
+  if (root && root !== app) candidates.push(root);
+
+  // 兜底：不同站点 React 根节点 id 可能不同，扫描常见根标记与 fiber key
+  if (candidates.length === 0) {
+    let budget = 4096;
+    const all = document.querySelectorAll('*');
+    for (let i = 0; i < all.length && budget-- > 0; i++) {
+      const el = all[i];
+      if (!el) continue;
+      if (el.hasAttribute('data-reactroot')) {
+        candidates.push(el);
+        break;
+      }
+      const keys = Object.keys(el);
+      let found = false;
+      for (let k = 0; k < keys.length; k++) {
+        const key = keys[k];
+        if (key.startsWith('__reactFiber$') || key.startsWith('__reactInternalInstance$')) {
+          candidates.push(el);
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+  }
+
+  for (const el of candidates) {
+    const fiberKey = Object.keys(el).find(
+      (k) => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'),
+    );
+    if (!fiberKey) continue;
+    const start = (el as unknown as Record<string, unknown>)[fiberKey];
+    if (!start || typeof start !== 'object') continue;
+    const vm = scanFiberFromNode(start as object);
+    if (vm) return vm;
   }
   return null;
 }

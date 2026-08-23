@@ -48,8 +48,9 @@
   }
 
   function keyboardGuard(node: HTMLInputElement) {
+    const host = (node.getRootNode() as ShadowRoot).host;
     const onKeydownCapture = (e: KeyboardEvent) => {
-      if (!e.composedPath().includes(node)) return;
+      if (!host || !e.composedPath().includes(host)) return;
       e.stopPropagation();
       if (e.key === 'Enter') {
         node.blur();

@@ -8,6 +8,7 @@ import {
   type VariableValue,
 } from './types';
 import { findVmViaFiber, isVMLike, normalizeValue, sleep } from './utils';
+import { markNative } from './stealth';
 
 interface LockEntry {
   targetId: string;
@@ -41,6 +42,8 @@ export class ScratchVM {
 
   private static readonly LOCK_FALLBACK_MS = 100;
   private static readonly EMIT_MIN_INTERVAL = 100;
+  /** 常规发现（window.vm / React fiber）失败多久后才启用 bind hook 兜底 */
+  private static readonly BIND_HOOK_DELAY_MS = 3000;
 
   private suppressWriteback = new Set<string>();
   private lockTickerTimer: ReturnType<typeof setTimeout> | null = null;
@@ -84,7 +87,6 @@ export class ScratchVM {
 
     this.setStatus(BridgeStatus.Connecting, '等待获取vm');
     try {
-      this.installBindHook();
       const vm = await this.waitForVM();
       this.restoreBindHook();
       this.vm = vm;
@@ -408,11 +410,15 @@ export class ScratchVM {
   }
 
   private async waitForVM(): Promise<unknown> {
-    const deadline = Date.now() + this.options.connectTimeout;
+    const startedAt = Date.now();
+    const deadline = startedAt + this.options.connectTimeout;
     while (Date.now() < deadline) {
       if (this.vm) return this.vm;
       const vm = this.discoverVM();
       if (vm) return vm;
+      if (Date.now() - startedAt >= ScratchVM.BIND_HOOK_DELAY_MS) {
+        this.installBindHook();
+      }
       await sleep(300);
     }
     throw new Error(
@@ -433,10 +439,7 @@ export class ScratchVM {
     this.bindHookTried = true;
     this.bindOrig = Function.prototype.bind;
     const self = this;
-    (Function.prototype as unknown as { bind: typeof Function.prototype.bind }).bind = function (
-      self2: unknown,
-      ...args: unknown[]
-    ) {
+    const hooked = function (this: Function, self2: unknown, ...args: unknown[]): unknown {
       const bound = self.bindOrig?.call(this, self2, ...args);
       if (
         !self.vm &&
@@ -449,6 +452,8 @@ export class ScratchVM {
       }
       return bound;
     };
+    markNative(hooked, 'bind');
+    (Function.prototype as unknown as { bind: typeof Function.prototype.bind }).bind = hooked;
     this.bindHookInstalled = true;
   }
 
