@@ -42,7 +42,6 @@ export class ScratchVM {
 
   private static readonly LOCK_FALLBACK_MS = 100;
   private static readonly EMIT_MIN_INTERVAL = 100;
-  /** 常规发现（window.vm / React fiber）失败多久后才启用 bind hook 兜底 */
   private static readonly BIND_HOOK_DELAY_MS = 3000;
 
   private suppressWriteback = new Set<string>();
@@ -54,7 +53,7 @@ export class ScratchVM {
   constructor(options: BridgeOptions = {}) {
     this.options = {
       pollInterval: 500,
-      connectTimeout: 30_000,
+      connectTimeout: 60_000,
       ...options,
     };
   }
