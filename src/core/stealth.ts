@@ -13,7 +13,19 @@ function isProtected(node: Node): boolean {
   return false;
 }
 
+function isProtectedFast(node: Node): boolean {
+  return node.nodeType === NODE_TYPE_ELEMENT && protectedHosts.has(node as HTMLElement);
+}
+
 function markNative(fn: object, name: string): void {
+  try {
+    Object.defineProperty(fn, 'name', {
+      configurable: true,
+      value: name,
+    });
+  } catch {
+    /* 忽略 */
+  }
   try {
     Object.defineProperty(fn, 'toString', {
       configurable: true,
@@ -21,25 +33,124 @@ function markNative(fn: object, name: string): void {
       value: () => `function ${name}() { [native code] }`,
     });
   } catch {
+    /* 忽略 */
   }
 }
 
 function filterSingle<T extends Element>(node: T | null): T | null {
-  return node && isProtected(node) ? null : node;
+  return node && isProtectedFast(node) ? null : node;
 }
 
-function filterList<T extends Element>(nodes: ArrayLike<T>): T[] {
-  const out: T[] = [];
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    if (!isProtected(node)) out.push(node);
-  }
-  Object.defineProperty(out, 'item', {
-    configurable: true,
+function createNodeList<T extends Node>(nodes: T[]): NodeListOf<T> {
+  const list = Object.create(NodeList.prototype) as unknown as NodeListOf<T>;
+  const len = nodes.length;
+  Object.defineProperty(list, 'length', {
+    configurable: false,
     enumerable: false,
     writable: false,
-    value: (index: number) => out[index] ?? null,
+    value: len,
   });
+  const indexed = list as unknown as Record<number, T>;
+  for (let i = 0; i < len; i++) indexed[i] = nodes[i];
+
+  type NodeListFacade = {
+    item(index: number): T | null;
+    forEach(callback: (value: T, key: number, parent: NodeListOf<T>) => void, thisArg?: unknown): void;
+    entries(): IterableIterator<[number, T]>;
+    keys(): IterableIterator<number>;
+    values(): IterableIterator<T>;
+    [Symbol.iterator](): IterableIterator<T>;
+  };
+  const mutable = list as unknown as NodeListFacade;
+  mutable.item = function (index: number): T | null {
+    return nodes[index] ?? null;
+  };
+  mutable.forEach = function (
+    callback: (value: T, key: number, parent: NodeListOf<T>) => void,
+    thisArg?: unknown,
+  ): void {
+    for (let i = 0; i < len; i++) callback.call(thisArg, nodes[i], i, list);
+  };
+  mutable.entries = function (): IterableIterator<[number, T]> {
+    return nodes.entries();
+  };
+  mutable.keys = function (): IterableIterator<number> {
+    return nodes.keys();
+  };
+  mutable.values = function (): IterableIterator<T> {
+    return nodes.values();
+  };
+  mutable[Symbol.iterator] = function (): IterableIterator<T> {
+    return nodes[Symbol.iterator]();
+  };
+  return list;
+}
+
+function createHTMLCollection(elements: Element[]): HTMLCollection {
+  const col = Object.create(HTMLCollection.prototype) as unknown as HTMLCollection;
+  const len = elements.length;
+  Object.defineProperty(col, 'length', {
+    configurable: false,
+    enumerable: false,
+    writable: false,
+    value: len,
+  });
+  const indexed = col as unknown as Record<number, Element>;
+  for (let i = 0; i < len; i++) indexed[i] = elements[i];
+  col.item = function (index: number): Element | null {
+    return elements[index] ?? null;
+  };
+  col.namedItem = function (name: string): Element | null {
+    for (const el of elements) {
+      if (el.getAttribute('id') === name || el.getAttribute('name') === name) {
+        return el;
+      }
+    }
+    return null;
+  };
+  col[Symbol.iterator] = function (): IterableIterator<Element> {
+    return elements[Symbol.iterator]();
+  };
+  return col;
+}
+
+function filterNodeList<T extends Element>(nodes: ArrayLike<T>): NodeListOf<T> {
+  if (protectedHosts.size === 0) return nodes as unknown as NodeListOf<T>;
+  const out: T[] = [];
+  let found = false;
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    if (isProtectedFast(node)) {
+      found = true;
+      continue;
+    }
+    out.push(node);
+  }
+  return found ? createNodeList(out) : (nodes as unknown as NodeListOf<T>);
+}
+
+function filterHTMLCollection<T extends Element>(nodes: ArrayLike<T>): HTMLCollection {
+  if (protectedHosts.size === 0) return nodes as unknown as HTMLCollection;
+  const out: T[] = [];
+  let found = false;
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    if (isProtectedFast(node)) {
+      found = true;
+      continue;
+    }
+    out.push(node);
+  }
+  return found ? createHTMLCollection(out) : (nodes as unknown as HTMLCollection);
+}
+
+function filterElementArray<T extends Element>(nodes: T[]): Element[] {
+  if (protectedHosts.size === 0) return nodes;
+  const out: Element[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    if (!isProtectedFast(node)) out.push(node);
+  }
   return out;
 }
 
@@ -66,6 +177,28 @@ function patchQueryApis(): void {
     x: number,
     y: number,
   ) => Element[];
+  const origDocGEBId = Document.prototype.getElementById as (
+    this: Document,
+    elementId: string,
+  ) => HTMLElement | null;
+  const origDocGEBCN = Document.prototype.getElementsByClassName as (
+    this: Document,
+    classNames: string,
+  ) => HTMLCollectionOf<Element>;
+  const origDocGEBTN = Document.prototype.getElementsByTagName as (
+    this: Document,
+    qualifiedName: string,
+  ) => HTMLCollectionOf<Element>;
+  const origDocGEBTNNS = Document.prototype.getElementsByTagNameNS as (
+    this: Document,
+    namespaceURI: string | null,
+    localName: string,
+  ) => HTMLCollectionOf<Element>;
+  const origDocGEBN = Document.prototype.getElementsByName as (
+    this: Document,
+    elementName: string,
+  ) => NodeListOf<HTMLElement>;
+
   const origElQS = Element.prototype.querySelector as (
     this: Element,
     selectors: string,
@@ -74,6 +207,23 @@ function patchQueryApis(): void {
     this: Element,
     selectors: string,
   ) => NodeListOf<Element>;
+  const origElGEBCN = Element.prototype.getElementsByClassName as (
+    this: Element,
+    classNames: string,
+  ) => HTMLCollectionOf<Element>;
+  const origElGEBTN = Element.prototype.getElementsByTagName as (
+    this: Element,
+    qualifiedName: string,
+  ) => HTMLCollectionOf<Element>;
+  const origElGEBTNNS = Element.prototype.getElementsByTagNameNS as (
+    this: Element,
+    namespaceURI: string | null,
+    localName: string,
+  ) => HTMLCollectionOf<Element>;
+  const origElClosest = Element.prototype.closest as (
+    this: Element,
+    selectors: string,
+  ) => Element | null;
 
   const docQS = function (this: Document, selectors: string): Element | null {
     return filterSingle(origDocQS.call(this, selectors));
@@ -81,11 +231,11 @@ function patchQueryApis(): void {
   markNative(docQS, 'querySelector');
   Document.prototype.querySelector = docQS as typeof Document.prototype.querySelector;
 
-  const docQSA = function (this: Document, selectors: string): Element[] {
-    return filterList(origDocQSA.call(this, selectors));
+  const docQSA = function (this: Document, selectors: string): NodeListOf<Element> {
+    return filterNodeList(origDocQSA.call(this, selectors));
   };
   markNative(docQSA, 'querySelectorAll');
-  Document.prototype.querySelectorAll = docQSA as unknown as typeof Document.prototype.querySelectorAll;
+  Document.prototype.querySelectorAll = docQSA as typeof Document.prototype.querySelectorAll;
 
   const docEFP = function (this: Document, x: number, y: number): Element | null {
     return filterSingle(origDocEFP.call(this, x, y));
@@ -94,7 +244,7 @@ function patchQueryApis(): void {
   Document.prototype.elementFromPoint = docEFP as typeof Document.prototype.elementFromPoint;
 
   const docEFPs = function (this: Document, x: number, y: number): Element[] {
-    return filterList(origDocEFPs.call(this, x, y));
+    return filterElementArray(origDocEFPs.call(this, x, y));
   };
   markNative(docEFPs, 'elementsFromPoint');
   Document.prototype.elementsFromPoint = docEFPs as typeof Document.prototype.elementsFromPoint;
@@ -105,11 +255,77 @@ function patchQueryApis(): void {
   markNative(elQS, 'querySelector');
   Element.prototype.querySelector = elQS as typeof Element.prototype.querySelector;
 
-  const elQSA = function (this: Element, selectors: string): Element[] {
-    return filterList(origElQSA.call(this, selectors));
+  const elQSA = function (this: Element, selectors: string): NodeListOf<Element> {
+    return filterNodeList(origElQSA.call(this, selectors));
   };
   markNative(elQSA, 'querySelectorAll');
-  Element.prototype.querySelectorAll = elQSA as unknown as typeof Element.prototype.querySelectorAll;
+  Element.prototype.querySelectorAll = elQSA as typeof Element.prototype.querySelectorAll;
+
+  const docGEBId = function (this: Document, elementId: string): HTMLElement | null {
+    return filterSingle(origDocGEBId.call(this, elementId));
+  };
+  markNative(docGEBId, 'getElementById');
+  Document.prototype.getElementById = docGEBId as typeof Document.prototype.getElementById;
+
+  const docGEBCN = function (this: Document, classNames: string): HTMLCollectionOf<Element> {
+    return filterHTMLCollection(origDocGEBCN.call(this, classNames)) as HTMLCollectionOf<Element>;
+  };
+  markNative(docGEBCN, 'getElementsByClassName');
+  Document.prototype.getElementsByClassName = docGEBCN as typeof Document.prototype.getElementsByClassName;
+
+  const elGEBCN = function (this: Element, classNames: string): HTMLCollectionOf<Element> {
+    return filterHTMLCollection(origElGEBCN.call(this, classNames)) as HTMLCollectionOf<Element>;
+  };
+  markNative(elGEBCN, 'getElementsByClassName');
+  Element.prototype.getElementsByClassName = elGEBCN as typeof Element.prototype.getElementsByClassName;
+
+  const docGEBTN = function (this: Document, qualifiedName: string): HTMLCollectionOf<Element> {
+    return filterHTMLCollection(origDocGEBTN.call(this, qualifiedName)) as HTMLCollectionOf<Element>;
+  };
+  markNative(docGEBTN, 'getElementsByTagName');
+  Document.prototype.getElementsByTagName = docGEBTN as typeof Document.prototype.getElementsByTagName;
+
+  const elGEBTN = function (this: Element, qualifiedName: string): HTMLCollectionOf<Element> {
+    return filterHTMLCollection(origElGEBTN.call(this, qualifiedName)) as HTMLCollectionOf<Element>;
+  };
+  markNative(elGEBTN, 'getElementsByTagName');
+  Element.prototype.getElementsByTagName = elGEBTN as typeof Element.prototype.getElementsByTagName;
+
+  const docGEBTNNS = function (
+    this: Document,
+    namespaceURI: string | null,
+    localName: string,
+  ): HTMLCollectionOf<Element> {
+    return filterHTMLCollection(
+      origDocGEBTNNS.call(this, namespaceURI, localName),
+    ) as HTMLCollectionOf<Element>;
+  };
+  markNative(docGEBTNNS, 'getElementsByTagNameNS');
+  Document.prototype.getElementsByTagNameNS = docGEBTNNS as typeof Document.prototype.getElementsByTagNameNS;
+
+  const elGEBTNNS = function (
+    this: Element,
+    namespaceURI: string | null,
+    localName: string,
+  ): HTMLCollectionOf<Element> {
+    return filterHTMLCollection(
+      origElGEBTNNS.call(this, namespaceURI, localName),
+    ) as HTMLCollectionOf<Element>;
+  };
+  markNative(elGEBTNNS, 'getElementsByTagNameNS');
+  Element.prototype.getElementsByTagNameNS = elGEBTNNS as typeof Element.prototype.getElementsByTagNameNS;
+
+  const docGEBN = function (this: Document, elementName: string): NodeListOf<HTMLElement> {
+    return filterNodeList(origDocGEBN.call(this, elementName));
+  };
+  markNative(docGEBN, 'getElementsByName');
+  Document.prototype.getElementsByName = docGEBN as typeof Document.prototype.getElementsByName;
+
+  const elClosest = function (this: Element, selectors: string): Element | null {
+    return filterSingle(origElClosest.call(this, selectors));
+  };
+  markNative(elClosest, 'closest');
+  Element.prototype.closest = elClosest as typeof Element.prototype.closest;
 }
 
 function patchMutationObserver(): void {
@@ -122,17 +338,35 @@ function patchMutationObserver(): void {
   const sanitize = (records: MutationRecord[]): MutationRecord[] => {
     const out: MutationRecord[] = [];
     for (const record of records) {
+      const added: Node[] = [];
+      const removed: Node[] = [];
       let hasProtected = false;
-      let hasOther = false;
-      const nodes: Node[] = [];
-      for (let i = 0; i < record.addedNodes.length; i++) nodes.push(record.addedNodes[i]);
-      for (let i = 0; i < record.removedNodes.length; i++) nodes.push(record.removedNodes[i]);
-      for (const node of nodes) {
-        if (isProtected(node)) hasProtected = true;
-        else hasOther = true;
+      for (let i = 0; i < record.addedNodes.length; i++) {
+        const n = record.addedNodes[i];
+        if (isProtected(n)) hasProtected = true;
+        else added.push(n);
       }
-      if (hasProtected && !hasOther) continue;
-      out.push(record);
+      for (let i = 0; i < record.removedNodes.length; i++) {
+        const n = record.removedNodes[i];
+        if (isProtected(n)) hasProtected = true;
+        else removed.push(n);
+      }
+      if (!hasProtected) {
+        out.push(record);
+        continue;
+      }
+      if (added.length === 0 && removed.length === 0) continue;
+      out.push({
+        type: record.type,
+        target: record.target,
+        addedNodes: createNodeList(added),
+        removedNodes: createNodeList(removed),
+        previousSibling: record.previousSibling,
+        nextSibling: record.nextSibling,
+        attributeName: record.attributeName,
+        attributeNamespace: record.attributeNamespace,
+        oldValue: record.oldValue,
+      });
     }
     return out;
   };

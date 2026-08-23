@@ -3,6 +3,13 @@
 Scratch变量操作面板
 实时查看、修改并锁定角色变量。支持导入和导出配置模板。
 
+## 未开智小学生试图使用ai检测ValMod
+![image](docs/images/image1.png)
+
+这位ccw用户[Maxkore](https://www.ccw.site/student/670b895b19f4df62e8081d80)，qq号`3879473998`。试图使用ai做出检测ValMod的拓展，可他不知道的是ValMod的反侦察模块是整个项目中代码占比最多的🤣，开发者现已更新并进一步加强反侦察模块。
+## 👇其实最初版本的ValMod反侦察模块就足以让这个垃圾拓展识别不到👇
+![image](docs/images/image2.png)
+
 ## 使用
 
 1. 安装浏览器脚本管理器（如 [Tampermonkey](https://www.tampermonkey.net/)）
