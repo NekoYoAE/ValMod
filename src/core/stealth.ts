@@ -27,9 +27,155 @@ const TR_PATCHED = Symbol(rndHex(8));
 const MO_PATCHED = Symbol(rndHex(8));
 const TRAV_PROP_PATCHED = Symbol(rndHex(8));
 
-const TAG_POOL = ['div', 'section', 'article', 'aside', 'main', 'nav', 'header', 'footer'];
+const TAG_POOL = ['div', 'div', 'div', 'section', 'article', 'aside', 'main', 'nav', 'header', 'footer', 'form', 'details'];
 
 const protectedHosts = new Set<HTMLElement>();
+
+const ALNUM = cc(
+  97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115,
+  116, 117, 118, 119, 120, 121, 122, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, // a-z 0-9
+);
+
+const ATTR_PREFIX_POOL = [
+  'data-v-',
+  'data-cc-',
+  'data-w-e-',
+  'data-block-',
+  'data-node-',
+  'data-item-',
+  'data-field-',
+  'data-project-',
+  'data-workspace-',
+  'data-stage-',
+  'data-sprite-',
+];
+
+const ATTR_FULL_POOL = [
+  'data-testid',
+  'data-test',
+  'data-test-id',
+  'data-index',
+  'data-key',
+  'data-id',
+  'data-role',
+  'data-name',
+  'data-type',
+  'data-state',
+  'data-value',
+  'data-node-id',
+  'data-block-id',
+];
+
+function rndAlphaNum(len: number): string {
+  let s = '';
+  for (let i = 0; i < len; i++) s += ALNUM[(Math.random() * ALNUM.length) | 0];
+  return s;
+}
+
+function rndUuid(): string {
+  return rndHex(8) + '-' + rndHex(4) + '-' + rndHex(4) + '-' + rndHex(12);
+}
+
+const PREFIX_CACHE: string[] = [];
+let prefixCacheTime = 0;
+const PREFIX_SCAN_LIMIT = 300;
+const PREFIX_CACHE_TTL = 120000;
+
+function samplePagePrefixes(): string[] {
+  const now = Date.now();
+  if (PREFIX_CACHE.length > 0 && now - prefixCacheTime < PREFIX_CACHE_TTL) return PREFIX_CACHE;
+  prefixCacheTime = now;
+  PREFIX_CACHE.length = 0;
+  try {
+    const all = document.body?.querySelectorAll('[data-]');
+    if (!all) return PREFIX_CACHE;
+    const seen = new Set<string>();
+    const limit = Math.min(all.length, PREFIX_SCAN_LIMIT);
+    for (let i = 0; i < limit; i++) {
+      const attrs = all[i].attributes;
+      for (let j = 0; j < attrs.length; j++) {
+        const name = attrs[j].name;
+        if (name.length < 7 || !name.startsWith('data-')) continue;
+        const dash = name.indexOf('-', 5);
+        if (dash > 0) seen.add(name.slice(0, dash + 1));
+      }
+      if (seen.size >= 12) break;
+    }
+    for (const p of seen) PREFIX_CACHE.push(p);
+  } catch {
+    /* ignore */
+  }
+  return PREFIX_CACHE;
+}
+
+function pickAttrName(): string {
+  if (((Math.random() * 4) | 0) === 0) {
+    return ATTR_FULL_POOL[(Math.random() * ATTR_FULL_POOL.length) | 0];
+  }
+  const prefixes = samplePagePrefixes();
+  const candidates = prefixes.length > 0 ? prefixes : ATTR_PREFIX_POOL;
+  const prefix = candidates[(Math.random() * candidates.length) | 0];
+  const kind = (Math.random() * 3) | 0;
+  if (kind === 0) return prefix + rndHex(6);
+  if (kind === 1) return prefix + rndAlphaNum(8);
+  return prefix + rndUuid();
+}
+
+function genAttrValue(): string {
+  const kind = (Math.random() * 4) | 0;
+  if (kind === 0) return '';
+  if (kind === 1) return rndHex(6 + ((Math.random() * 10) | 0));
+  if (kind === 2) return rndAlphaNum(8 + ((Math.random() * 8) | 0));
+  return rndUuid();
+}
+
+function buildHostAttrs(): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  const count = 1 + ((Math.random() * 3) | 0);
+  const used = new Set<string>();
+  for (let i = 0; i < count; i++) {
+    const name = pickAttrName();
+    if (used.has(name)) continue;
+    used.add(name);
+    out.push([name, genAttrValue()]);
+  }
+  return out;
+}
+
+function applyHostAttrs(host: HTMLElement): void {
+  try {
+    const names = host.getAttributeNames();
+    for (let i = 0; i < names.length; i++) {
+      if (names[i].startsWith('data-')) host.removeAttribute(names[i]);
+    }
+    const attrs = buildHostAttrs();
+    for (let i = 0; i < attrs.length; i++) host.setAttribute(attrs[i][0], attrs[i][1]);
+  } catch {
+    /* ignore */
+  }
+}
+
+const rotationHosts: HTMLElement[] = [];
+let rotationStarted = false;
+function startAttrRotation(host: HTMLElement): void {
+  rotationHosts.push(host);
+  if (rotationStarted) return;
+  rotationStarted = true;
+  const tick = () => {
+    for (let i = 0; i < rotationHosts.length; i++) applyHostAttrs(rotationHosts[i]);
+    setTimeout(tick, 20000 + ((Math.random() * 30000) | 0));
+  };
+  setTimeout(tick, 20000 + ((Math.random() * 30000) | 0));
+}
+
+function randomizeHostCss(css: string): string {
+  const z = 2147400000 + ((Math.random() * 80000) | 0);
+  const off = 9990 + ((Math.random() * 20) | 0);
+  return css
+    .replace(/z-index: 2147483647/g, `z-index: ${z}`)
+    .replace(/left: -9999px/g, `left: -${off}px`)
+    .replace(/top: -9999px/g, `top: -${off}px`);
+}
 
 const ORIG_FN_TO_STRING = Function.prototype.toString;
 const MARKED_FNS = new WeakSet<object>();
@@ -352,6 +498,8 @@ function patchMutationObserver(): void {
   const sanitize = (records: MutationRecord[]): MutationRecord[] => {
     const out: MutationRecord[] = [];
     for (const record of records) {
+      // 过滤掉以宿主为目标的属性变更记录（动态属性轮换会触发此类记录）
+      if (record.type === 'attributes' && isProtectedFast(record.target as Node)) continue;
       const added: Node[] = [];
       const removed: Node[] = [];
       let hasProtected = false;
@@ -452,7 +600,6 @@ function patchTraversalApis(): void {
   );
 }
 
-/* —— 属性访问器（getter）补丁：过滤 children / childNodes / 兄弟与首尾遍历入口 —— */
 interface AccessorEntry {
   target: object;
   prop: string;
@@ -602,25 +749,12 @@ export function createStealthHost(styles: string): StealthHost {
   const host = document.createElement(tag);
   protectedHosts.add(host);
 
-  try {
-    host.setAttribute('data-v-' + rndHex(8), '');
-  } catch {
-    /* ignore */
-  }
-  try {
-    host.setAttribute('data-cc-' + rndHex(4), rndHex(10));
-  } catch {
-    /* ignore */
-  }
-  try {
-    host.setAttribute('data-testid', rndHex(12));
-  } catch {
-    /* ignore */
-  }
+  applyHostAttrs(host);
+  startAttrRotation(host);
 
   const root = host.attachShadow({ mode: 'closed' });
   const style = document.createElement('style');
-  style.textContent = styles;
+  style.textContent = randomizeHostCss(styles);
   root.appendChild(style);
 
   let inserted = false;
@@ -628,7 +762,10 @@ export function createStealthHost(styles: string): StealthHost {
     if (inserted) return;
     if (document.body) {
       inserted = true;
-      document.body.appendChild(host);
+      const kids = document.body.children;
+      const idx = (Math.random() * (kids.length + 1)) | 0;
+      if (idx >= kids.length) document.body.appendChild(host);
+      else document.body.insertBefore(host, kids[idx]);
     } else {
       requestAnimationFrame(insert);
     }

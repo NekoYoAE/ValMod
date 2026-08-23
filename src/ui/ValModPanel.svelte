@@ -21,7 +21,7 @@
   let status: BridgeStatus = $state(BridgeStatus.Disconnected);
   let variables: ScratchValMod[] = $state([]);
   let errorMsg = $state('');
-  let minimized = $state(false);
+  let minimized = $state(true);
   let editing = $state(false);
   let panelEl: HTMLElement | undefined = $state();
   let bodyEl: HTMLElement | undefined = $state();
