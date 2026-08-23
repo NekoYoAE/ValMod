@@ -9,7 +9,7 @@ export function readVersionParams() {
   try {
     content = readFileSync(new URL('../src/version.ts', import.meta.url), 'utf-8');
   } catch {
-    throw new Error('[构建中止] 缺少 src/version.ts，请通过 npm run deploy 部署生成，禁止手动删除或伪造');
+    throw new Error('[构建中止]');
   }
   const vt = (content.match(/_VT = \[([\s\S]*?)\]/)?.[1] ?? '')
     .split(',')
@@ -23,7 +23,7 @@ export function readVersionParams() {
   const vh = vt.length >= 16 ? rd(8) : 0;
   const tag = vt.length >= 16 ? rd(12) : 0;
   if (!seed || !cipher || !vh || vu.length === 0) {
-    throw new Error('[构建中止] src/version.ts 内容不完整或已被篡改，请通过 npm run deploy 重新生成');
+    throw new Error('[构建中止]');
   }
   return { seed, cipher, vh, tag, vu };
 }
@@ -94,12 +94,21 @@ export function versionGuardPlugin() {
     name: 'version-guard-inject',
     enforce: 'pre',
     transform(code, id) {
-      if (!id.replace(/\\/g, '/').endsWith('/src/main.ts')) return null;
-      if (!code.includes('__guard__')) {
-        this.error('[构建中止] 检测到版本校验调用（__guard__）被移除，禁止删除版本检测');
+      const p = id.replace(/\\/g, '/');
+      if (p.endsWith('/src/main.ts')) {
+        if (!code.includes('__guard__') || !code.includes('_bannedA')) {
+          this.error('[构建中止]');
+        }
+        if (!cached) cached = generateVersionGuard();
+        return { code: cached.code + '\n' + code.replace(/__guard__/g, cached.name), map: null };
       }
-      if (!cached) cached = generateVersionGuard();
-      return { code: cached.code + '\n' + code.replace(/__guard__/g, cached.name), map: null };
+      if (p.endsWith('/src/dom-utils.ts') && !code.includes('_bannedC')) {
+        this.error('[构建中止]');
+      }
+      if (p.endsWith('/src/core/scratch-vm.ts') && !code.includes('_bannedB')) {
+        this.error('[构建中止]');
+      }
+      return null;
     },
   };
 }

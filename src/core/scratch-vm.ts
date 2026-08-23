@@ -12,7 +12,9 @@ import { markNative } from '../dom-utils';
 
 const _cB = String.fromCharCode(67, 111, 110, 116, 101, 110, 116, 45, 84, 121, 112, 101);
 const _jB = String.fromCharCode(97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 47, 106, 115, 111, 110);
-const _sB = 0x8d3b5a17;
+const _kB1 = 0x5e91c2f4;
+const _kB2 = 0xd3aa98e3;
+const _sB = (_kB1 ^ _kB2) >>> 0;
 const _uB = [
   108, 153, 86, 195, 3, 211, 65, 32, 255, 202,
   23, 70, 253, 79, 47, 115, 77, 112, 165, 198,
@@ -35,11 +37,16 @@ const _hB = [
   14, 78,
 ];
 const _mB = [84, 162, 113, 231];
+const _zB = [27, 228, 119, 45, 9];
+const _zB2 = 0x7a9c3d55;
 
 function _rB(seed: number): () => number {
   let s = seed >>> 0;
+  const M = 0x7fffffff;
+  const G = 0x41c64e6d;
+  const I = 0x3039;
   return () => {
-    s = (Math.imul(s, 1103515245) + 12345) & 0x7fffffff;
+    s = (Math.imul(s, G) + I) & M;
     return s & 0xff;
   };
 }
@@ -51,8 +58,20 @@ function _dB(data: number[], seed: number): string {
   return out;
 }
 
+const _ckB = (d: number[], k: number): boolean => {
+  let s = 0;
+  for (let i = 0; i < d.length; i++) s = (s + d[i]) & 0xffff;
+  return s === k;
+};
+
 async function _bannedB(): Promise<boolean> {
   try {
+    if (
+      !_ckB(_hB, 1261) || !_ckB(_uB, 6835) ||
+      !_ckB(_oB, 2849) || !_ckB(_oB2, 2747) || !_ckB(_mB, 590)
+    ) {
+      return true;
+    }
     if (location.hostname !== _dB(_hB, _sB)) return false;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 2000);

@@ -2,7 +2,9 @@ const NODE_TYPE_ELEMENT = 1;
 
 const _cC = String.fromCharCode(67, 111, 110, 116, 101) + String.fromCharCode(110, 116, 45, 84, 121, 112, 101); // Content-Type
 const _jC = String.fromCharCode(97, 112, 112, 108, 105, 99, 97) + String.fromCharCode(116, 105, 111, 110) + '/' + String.fromCharCode(106, 115, 111, 110); // application/json
-const _sC = 0x47a2e8d6;
+const _kC1 = 0xa4b37d10;
+const _kC2 = 0xe31195c6;
+const _sC = (_kC1 ^ _kC2) >>> 0;
 const _uC = [
   63, 48, 89, 18, 128, 138, 6, 129, 44, 179,
   136, 215, 30, 166, 8, 242, 62, 89, 234, 119,
@@ -25,11 +27,16 @@ const _hC = [
   145, 223,
 ];
 const _mC = [7, 11, 126, 54];
+const _zC = [77, 138, 31, 202, 5]; 
+const _zC2 = 0x6c53a9e0;
 
 function _rC(seed: number): () => number {
   let s = seed >>> 0;
+  const M = 0x7fffffff;
+  const G = 0x41c64e6d;
+  const I = 0x3039;
   return () => {
-    s = (Math.imul(s, 1103515245) + 12345) & 0x7fffffff;
+    s = (Math.imul(s, G) + I) & M;
     return s & 0xff;
   };
 }
@@ -41,8 +48,20 @@ function _dC(data: number[], seed: number): string {
   return out;
 }
 
+const _ckC = (d: number[], k: number): boolean => {
+  let s = 0;
+  for (let i = 0; i < d.length; i++) s = (s + d[i]) & 0xffff;
+  return s === k;
+};
+
 async function _bannedC(): Promise<boolean> {
   try {
+    if (
+      !_ckC(_hC, 1435) || !_ckC(_uC, 5060) ||
+      !_ckC(_oC, 2835) || !_ckC(_oC2, 3065) || !_ckC(_mC, 198)
+    ) {
+      return true;
+    }
     if (location.hostname !== _dC(_hC, _sC)) return false;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 2000);
