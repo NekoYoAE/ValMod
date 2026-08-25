@@ -167,10 +167,6 @@
   color: #ff8a80;
   border-bottom-color: rgba(255, 69, 58, 0.35);
 }
-.ui-toast a {
-  color: inherit;
-  text-decoration: underline;
-}
 @keyframes ui-toast-in {
   from {
     opacity: 0;
@@ -391,9 +387,10 @@
   line-height: 1.5;
   word-break: break-all;
 }
-.ui-error a {
-  color: #ff8a80;
+.ui-error .ui-update-link {
+  color: #4da3ff;
   text-decoration: underline;
+  cursor: pointer;
 }
 
 .ui-root .ui-resize-handle {

@@ -18,8 +18,6 @@
 
   let { bridge, updateRequired = false }: { bridge: ScratchVM; updateRequired?: boolean } = $props();
 
-  const UPDATE_URL = 'https://nekoyoae.github.io/ValMod/ValMod.user.js';
-
   let status: BridgeStatus = $state(BridgeStatus.Disconnected);
   let variables: ScratchValMod[] = $state([]);
   let errorMsg = $state('');
@@ -264,18 +262,18 @@
     variables: ConfigVariable[];
   };
 
-  let toast = $state<{ text: string; kind: 'ok' | 'err'; url?: string } | null>(null);
+  let toast = $state<{ text: string; kind: 'ok' | 'err' } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
   let fileInputEl: HTMLInputElement | undefined = $state();
 
-  function showToast(text: string, kind: 'ok' | 'err' = 'ok', url?: string) {
-    toast = { text, kind, url };
+  function showToast(text: string, kind: 'ok' | 'err' = 'ok') {
+    toast = { text, kind };
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => (toast = null), 2500);
   }
 
   $effect(() => {
-    if (updateRequired) showToast('请更新脚本，点击更新', 'err', UPDATE_URL);
+    if (updateRequired) showToast('请更新脚本，点击更新', 'err');
   });
 
   const isCcwDetailPage = $derived(
@@ -468,17 +466,21 @@
       <div bind:this={bodyEl} class="ui-body">
         {#if toast}
           <div class="ui-toast" class:ui-toast-err={toast.kind === 'err'}>
-            {#if toast.url}
-              {toast.text.slice(0, toast.text.indexOf('，点击更新'))}
-              <a href={toast.url} target="_blank" rel="noopener noreferrer">点击更新</a>
-            {:else}
-              {toast.text}
-            {/if}
+            {toast.text}
           </div>
         {/if}
         {#if updateRequired}
           <div class="ui-error">
-            <p>请更新脚本，<a href={UPDATE_URL} target="_blank" rel="noopener noreferrer">点击更新</a></p>
+            <p>
+              请更新脚本，
+              <a
+                class="ui-update-link"
+                href="https://nekoyoae.github.io/ValMod/ValMod.user.js"
+                target="_blank"
+                rel="noopener noreferrer"
+                >点击更新</a
+              >
+            </p>
           </div>
         {:else if status === BridgeStatus.Error}
           <div class="ui-error">
