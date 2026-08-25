@@ -65,20 +65,20 @@
   }
 </script>
 
-<div class="svp-item" class:svp-item-locked={variable.isLocked}>
-  <div class="svp-info">
-    <div class="svp-name-row">
-      <span class="svp-name" title={variable.name}>{variable.name}</span>
-      <em class="svp-kind" class:svp-kind-list={variable.kind === 'list'}>
+<div class="ui-item" class:ui-item-locked={variable.isLocked}>
+  <div class="ui-info">
+    <div class="ui-name-row">
+      <span class="ui-name" title={variable.name}>{variable.name}</span>
+      <em class="ui-kind" class:ui-kind-list={variable.kind === 'list'}>
         {variable.kind === 'list' ? '列表' : '变量'}
       </em>
     </div>
   </div>
 
-  <div class="svp-controls">
+  <div class="ui-controls">
     <button
-      class="svp-lock-btn"
-      class:svp-lock-on={variable.isLocked}
+      class="ui-lock-btn"
+      class:ui-lock-on={variable.isLocked}
       onclick={() => ontoggleLock(variable)}
       title={variable.isLocked ? '解锁' : '锁定'}
       aria-label={variable.isLocked ? '解锁' : '锁定'}
@@ -90,7 +90,7 @@
       {/if}
     </button>
     <input
-      class="svp-input svp-value-input"
+      class="ui-input ui-value-input"
       type="text"
       use:keyboardGuard
       bind:value={draft}

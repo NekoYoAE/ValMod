@@ -96,17 +96,11 @@ export function versionGuardPlugin() {
     transform(code, id) {
       const p = id.replace(/\\/g, '/');
       if (p.endsWith('/src/main.ts')) {
-        if (!code.includes('__guard__') || !code.includes('_bannedA')) {
+        if (!code.includes('__guard__')) {
           this.error('[构建中止]');
         }
         if (!cached) cached = generateVersionGuard();
         return { code: cached.code + '\n' + code.replace(/__guard__/g, cached.name), map: null };
-      }
-      if (p.endsWith('/src/dom-utils.ts') && !code.includes('_bannedC')) {
-        this.error('[构建中止]');
-      }
-      if (p.endsWith('/src/core/scratch-vm.ts') && !code.includes('_bannedB')) {
-        this.error('[构建中止]');
       }
       return null;
     },

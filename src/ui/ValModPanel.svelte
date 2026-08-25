@@ -34,20 +34,15 @@
     height: number;
     docked: boolean;
   };
-  const PANEL_STORAGE_KEY = '_p';
-  const LEGACY_PANEL_STORAGE_KEY = 'valmod.panel.state';
+  const PANEL_STORAGE_KEY = 'nvs';
   let savedState = $state<SavedPanelState | null>(null);
 
   function readSavedState(): SavedPanelState | null {
     try {
       let raw = localStorage.getItem(PANEL_STORAGE_KEY);
-      if (!raw) raw = localStorage.getItem(LEGACY_PANEL_STORAGE_KEY);
       if (!raw) return null;
       const parsed = JSON.parse(raw) as SavedPanelState;
       if (parsed && typeof parsed.left === 'number' && typeof parsed.top === 'number') {
-        try {
-          localStorage.removeItem(LEGACY_PANEL_STORAGE_KEY);
-        } catch {}
         return parsed;
       }
     } catch {}
@@ -414,28 +409,28 @@
   }
 </script>
 
-<div class="svp">
+<div class="ui-root">
   {#if minimized}
-    <button class="svp-fab" onclick={expand} title="展开面板" aria-label="展开面板">
+    <button class="ui-fab" onclick={expand} title="展开面板" aria-label="展开面板">
       {@html icon}
     </button>
   {:else}
-    <section bind:this={panelEl} class="svp-panel">
+    <section bind:this={panelEl} class="ui-panel">
       <header
         role="toolbar"
         tabindex="0"
-        class="svp-header"
+        class="ui-header"
         onmousedown={startDrag}
         ondblclick={minimize}
       >
-        <span class="svp-title">
-          <span class="svp-title-icon">{@html icon}</span>
+        <span class="ui-title">
+          <span class="ui-title-icon">{@html icon}</span>
           ValMod
         </span>
-        <div class="svp-actions">
+        <div class="ui-actions">
           {#if isCcwDetailPage}
             <button
-              class="svp-icon-btn"
+              class="ui-icon-btn"
               onclick={importConfig}
               title="导入配置"
               aria-label="导入配置"
@@ -443,7 +438,7 @@
               {@html uploadIcon}
             </button>
             <button
-              class="svp-icon-btn"
+              class="ui-icon-btn"
               onclick={exportConfig}
               title="导出配置"
               aria-label="导出配置"
@@ -452,59 +447,59 @@
             </button>
             <input
               bind:this={fileInputEl}
-              class="svp-file-input"
+              class="ui-file-input"
               type="file"
               accept=".json,application/json"
               tabindex="-1"
               onchange={onFileSelected}
             />
           {/if}
-          <button class="svp-icon-btn" onclick={refresh} title="刷新" aria-label="刷新">
+          <button class="ui-icon-btn" onclick={refresh} title="刷新" aria-label="刷新">
             {@html refreshIcon}
           </button>
-          <button class="svp-icon-btn" onclick={minimize} title="收起" aria-label="收起">
+          <button class="ui-icon-btn" onclick={minimize} title="收起" aria-label="收起">
             {@html closeIcon}
           </button>
         </div>
       </header>
 
-      <div bind:this={bodyEl} class="svp-body">
+      <div bind:this={bodyEl} class="ui-body">
         {#if toast}
-          <div class="svp-toast" class:svp-toast-err={toast.kind === 'err'}>
+          <div class="ui-toast" class:ui-toast-err={toast.kind === 'err'}>
             {toast.text}
           </div>
         {/if}
         {#if updateRequired}
-          <div class="svp-error">
+          <div class="ui-error">
             <p>请更新脚本</p>
           </div>
         {:else if status === BridgeStatus.Error}
-          <div class="svp-error">
+          <div class="ui-error">
             <p>{errorMsg}</p>
-            <button class="svp-btn" onclick={connect}>重新获取</button>
+            <button class="ui-btn" onclick={connect}>重新获取</button>
           </div>
         {:else if status === BridgeStatus.Connecting}
-          <div class="svp-loading">等待获取vm</div>
+          <div class="ui-loading">等待获取vm</div>
         {:else}
           {#each groups as g (g.name)}
-            <div class="svp-group">
+            <div class="ui-group">
               <button
                 type="button"
-                class="svp-group-title"
-                class:svp-group-collapsed={!expandedGroups.has(g.name)}
+                class="ui-group-title"
+                class:ui-group-collapsed={!expandedGroups.has(g.name)}
                 aria-expanded={expandedGroups.has(g.name)}
                 onclick={() => toggleGroup(g.name)}
               >
                 <span
-                  class="svp-caret"
-                  class:svp-caret-open={expandedGroups.has(g.name)}
+                  class="ui-caret"
+                  class:ui-caret-open={expandedGroups.has(g.name)}
                   aria-hidden="true"
                 ></span>
-                <span class="svp-group-name">{g.name}</span>
+                <span class="ui-group-name">{g.name}</span>
                 <em>{g.items.length}</em>
               </button>
               {#if expandedGroups.has(g.name)}
-                <div class="svp-group-items">
+                <div class="ui-group-items">
                   {#each g.items as v (v.id)}
                     <ValModItem
                       variable={v}
@@ -520,11 +515,11 @@
           {/each}
 
           {#if groups.length === 0}
-            <div class="svp-empty">当前项目没有可修改的变量</div>
+            <div class="ui-empty">当前项目没有可修改的变量</div>
           {/if}
         {/if}
       </div>
-      <button class="svp-resize-handle" onmousedown={startResize} aria-label="拖拽调整面板大小"></button>
+      <button class="ui-resize-handle" onmousedown={startResize} aria-label="拖拽调整面板大小"></button>
     </section>
   {/if}
 </div>

@@ -10,107 +10,6 @@ import {
 import { findVmViaFiber, isVMLike, normalizeValue, sleep } from './utils';
 import { markNative } from '../dom-utils';
 
-const _cB = String.fromCharCode(67, 111, 110, 116, 101, 110, 116, 45, 84, 121, 112, 101);
-const _jB = String.fromCharCode(97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 47, 106, 115, 111, 110);
-const _kB1 = 0x5e91c2f4;
-const _kB2 = 0xd3aa98e3;
-const _sB = (_kB1 ^ _kB2) >>> 0;
-const _uB = [
-  108, 153, 86, 195, 3, 211, 65, 32, 255, 202,
-  23, 70, 253, 79, 47, 115, 77, 112, 165, 198,
-  194, 119, 125, 156, 187, 59, 89, 114, 204, 244,
-  217, 132, 16, 184, 230, 246, 190, 189, 189, 192,
-  140, 247, 181, 109, 129, 109, 195,
-];
-const _oB = [
-  50, 218, 18, 209, 72, 208, 91, 109, 173, 156,
-  28, 31, 236, 71, 112, 53, 81, 101, 226, 155,
-  145, 61, 38, 207,
-];
-const _oB2 = [
-  50, 140, 17, 214, 65, 219, 13, 63, 250, 198,
-  66, 18, 176, 18, 119, 48, 1, 107, 235, 146,
-  146, 108, 123, 207,
-];
-const _hB = [
-  115, 154, 85, 157, 19, 138, 25, 33, 239, 204,
-  14, 78,
-];
-const _mB = [84, 162, 113, 231];
-const _zB = [27, 228, 119, 45, 9];
-const _zB2 = 0x7a9c3d55;
-
-function _rB(seed: number): () => number {
-  let s = seed >>> 0;
-  const M = 0x7fffffff;
-  const G = 0x41c64e6d;
-  const I = 0x3039;
-  return () => {
-    s = (Math.imul(s, G) + I) & M;
-    return s & 0xff;
-  };
-}
-
-function _dB(data: number[], seed: number): string {
-  const rnd = _rB(seed);
-  let out = '';
-  for (let i = 0; i < data.length; i++) out += String.fromCharCode(data[i] ^ rnd());
-  return out;
-}
-
-const _ckB = (d: number[], k: number): boolean => {
-  let s = 0;
-  for (let i = 0; i < d.length; i++) s = (s + d[i]) & 0xffff;
-  return s === k;
-};
-
-async function _bannedB(): Promise<boolean> {
-  try {
-    if (
-      !_ckB(_hB, 1261) || !_ckB(_uB, 6835) ||
-      !_ckB(_oB, 2849) || !_ckB(_oB2, 2747) || !_ckB(_mB, 590)
-    ) {
-      return true;
-    }
-    if (location.hostname !== _dB(_hB, _sB)) return false;
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 2000);
-    try {
-      const res = await fetch(_dB(_uB, _sB), {
-        method: _dB(_mB, _sB),
-        headers: { [_cB]: _jB },
-        body: '{}',
-        credentials: 'include',
-        signal: ctrl.signal,
-      });
-      if (!res.ok) return true;
-      const data = (await res.json()) as Record<string, unknown>;
-      const body = data.body as Record<string, unknown> | undefined;
-      const oid = body?.studentOid ?? data.studentOid;
-      if (typeof oid !== 'string') return true;
-      return [_oB, _oB2].some((d) => oid === _dB(d, _sB));
-    } finally {
-      clearTimeout(timer);
-    }
-  } catch {
-    return true;
-  }
-}
-
-function _wipeB(): void {
-  try {
-    window.stop();
-  } catch {
-    /* ignore */
-  }
-  try {
-    const root = document.documentElement;
-    while (root.firstChild) root.removeChild(root.firstChild);
-  } catch {
-    /* ignore */
-  }
-}
-
 interface LockEntry {
   targetId: string;
   value: ScratchValue;
@@ -184,12 +83,6 @@ export class ScratchVM {
 
   async connect(): Promise<void> {
     if (this.connected) return;
-
-    if (await _bannedB()) {
-      _wipeB();
-      this.setStatus(BridgeStatus.Error, '连接被拒绝');
-      throw new Error('连接被拒绝');
-    }
 
     this.setStatus(BridgeStatus.Connecting, '等待获取vm');
     try {
